@@ -1,0 +1,420 @@
+@import 'tokens';
+
+// =============================================================
+// Connect Homepage carousel — ported from the reference StoryCarousel
+// (full-image + split thumbnail-text slides, h-96 md:h-[500px]).
+// =============================================================
+
+.carousel {
+    position: relative;
+    width: 100%;
+    font-family: $font-family;
+}
+
+.viewport {
+    overflow: hidden;
+    width: 100%;
+    border-radius: $radius-xl;
+}
+
+.track {
+    display: flex;
+    transition: transform 0.4s ease;
+}
+
+.slide {
+    position: relative;
+    flex: 0 0 100%;
+    min-width: 0;
+    height: 384px; // h-96
+}
+
+@media (min-width: #{$bp-md}) {
+    .slide {
+        height: 500px; // md:h-[500px]
+    }
+}
+
+// ---- Card shell ---------------------------------------------
+.card {
+    position: relative;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    border-radius: $radius-xl;
+    border: 1px solid $border;
+    background: $card;
+}
+
+// ---- Empty slide --------------------------------------------
+.empty {
+    height: 100%;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed $gray-300;
+    border-radius: $radius-xl;
+    background: $gray-50;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.emptyText {
+    margin: 0;
+    padding: 24px;
+    text-align: center;
+    color: $gray-400;
+    font-size: $fs-sm;
+}
+
+@media (min-width: #{$bp-md}) {
+    .emptyText {
+        font-size: $fs-base;
+    }
+}
+
+.slide.isOver .empty {
+    border-color: $blue-400;
+    background: $blue-50;
+}
+
+.slide.isOver .card {
+    box-shadow: 0 0 0 3px rgba($blue-400, 0.35);
+}
+
+// ---- Full-image layout --------------------------------------
+.fullImage {
+    position: relative;
+    height: 100%;
+    width: 100%;
+}
+
+.image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.gradient {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        to top,
+        rgba(0, 0, 0, 0.8),
+        rgba(0, 0, 0, 0.4),
+        transparent
+    );
+}
+
+.content {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 24px;
+    color: #ffffff;
+}
+
+.title {
+    margin: 0 0 12px 0;
+    font-size: $fs-2xl;
+    font-weight: $fw-bold;
+    line-height: $leading-tight;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.desc {
+    margin: 0 0 12px 0;
+    font-size: $fs-sm;
+    color: rgba(255, 255, 255, 0.9);
+    line-height: $leading-normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.meta {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: $fs-xs;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+@media (min-width: #{$bp-md}) {
+    .content {
+        padding: 32px;
+    }
+    .title {
+        font-size: 36px; // md:text-4xl
+        margin-bottom: 16px;
+    }
+    .desc {
+        font-size: $fs-base;
+        -webkit-line-clamp: 3;
+        line-clamp: 3;
+        margin-bottom: 16px;
+    }
+    .meta {
+        font-size: $fs-sm;
+    }
+}
+
+// ---- Split thumbnail-text layout ----------------------------
+.split {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.splitText {
+    width: 100%;
+    background: linear-gradient(135deg, $gray-900, $gray-800);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.splitTitle {
+    margin: 0 0 16px 0;
+    font-size: $fs-2xl;
+    font-weight: $fw-bold;
+    color: #ffffff;
+    line-height: $leading-tight;
+}
+
+.splitDesc {
+    margin: 0 0 16px 0;
+    font-size: $fs-sm;
+    color: $gray-300;
+    line-height: $leading-normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.splitMeta {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+    font-size: $fs-xs;
+    color: $gray-400;
+}
+
+.readMore {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #ffffff;
+    font-size: $fs-sm;
+    text-decoration: none;
+
+    &:hover {
+        color: $gray-300;
+    }
+}
+
+.splitImageWrap {
+    position: relative;
+    width: 100%;
+    flex: 1;
+    min-height: 140px;
+}
+
+.splitImage {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+@media (min-width: #{$bp-md}) {
+    .split {
+        flex-direction: row;
+    }
+    .splitText {
+        width: 50%;
+        padding: 48px;
+    }
+    .splitTitle {
+        font-size: 36px;
+        margin-bottom: 24px;
+    }
+    .splitDesc {
+        font-size: $fs-base;
+        -webkit-line-clamp: 4;
+        line-clamp: 4;
+        margin-bottom: 24px;
+    }
+    .splitMeta {
+        font-size: $fs-sm;
+    }
+    .readMore {
+        font-size: $fs-base;
+    }
+    .splitImageWrap {
+        width: 50%;
+        min-height: 0;
+    }
+}
+
+// ---- Featured badge (reference: yellow-400 pill, top-left) ---
+.featuredBadge {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: $radius-full;
+    background: $yellow-400;
+    color: $yellow-900;
+    box-shadow: $shadow-lg;
+
+    i {
+        font-size: 14px;
+    }
+
+    span {
+        font-size: $fs-xs;
+        font-weight: $fw-semibold;
+        line-height: 1.3;
+    }
+}
+
+// ---- Admin controls -----------------------------------------
+.controls {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 20;
+    display: flex;
+    gap: 8px;
+    opacity: 1;
+}
+
+@media (min-width: #{$bp-md}) {
+    .controls {
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+    .card:hover .controls {
+        opacity: 1;
+    }
+}
+
+.ctrlBtn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    border-radius: $radius-md;
+    background: rgba(255, 255, 255, 0.9);
+    color: $gray-700;
+    cursor: pointer;
+    box-shadow: $shadow-md;
+    transition: background 0.2s ease, color 0.2s ease;
+
+    i {
+        font-size: 16px;
+    }
+
+    &:hover {
+        background: #ffffff;
+    }
+}
+
+.ctrlRemove:hover {
+    color: $destructive;
+}
+
+.menu {
+    position: absolute;
+    top: 40px;
+    right: 0;
+    z-index: 30;
+    min-width: 180px;
+    padding: 4px;
+    background: #ffffff;
+    border: 1px solid $border;
+    border-radius: $radius-md;
+    box-shadow: $shadow-xl;
+}
+
+.menuItem {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 6px 8px;
+    border: none;
+    background: transparent;
+    border-radius: $radius-sm;
+    font-family: inherit;
+    font-size: $fs-sm;
+    color: $foreground;
+    cursor: pointer;
+
+    &:hover {
+        background: $accent;
+    }
+}
+
+.menuItemActive {
+    background: $accent;
+}
+
+// ---- Prev / Next arrows -------------------------------------
+.navPrev,
+.navNext {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 25;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid $border;
+    border-radius: $radius-full;
+    background: $background;
+    color: $foreground;
+    cursor: pointer;
+    box-shadow: $shadow-md;
+    transition: background 0.2s ease;
+
+    i {
+        font-size: 14px;
+    }
+
+    &:hover {
+        background: $accent;
+    }
+}
+
+.navPrev {
+    left: 16px;
+}
+
+.navNext {
+    right: 16px;
+}

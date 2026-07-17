@@ -1,0 +1,120 @@
+@import './tokens';
+
+.picker {
+    width: 256px;
+    background: $background;
+    border: 1px solid $border;
+    border-radius: $radius-lg;
+    padding: 12px;
+}
+
+.calendarArea {
+    margin-bottom: 12px;
+}
+
+.monthHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.navBtn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    color: $foreground;
+}
+
+.monthLabel {
+    font-size: $fs-sm;
+    font-weight: $fw-medium;
+}
+
+.weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    text-align: center;
+    font-size: $fs-xs;
+    color: $gray-500;
+    margin-bottom: 4px;
+}
+
+.days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+}
+
+.day {
+    background: transparent;
+    border: none;
+    border-radius: $radius-sm;
+    height: 28px;
+    font-size: $fs-xs;
+    cursor: pointer;
+    color: $foreground;
+    
+    &:hover {
+        background: $accent;
+    }
+}
+
+.daySelected {
+    background: $primary;
+    color: $primary-foreground;
+    
+    &:hover {
+        background: $primary-hover;
+    }
+}
+
+.dayToday {
+    border: 1px solid $primary;
+}
+
+.emptyDay {
+    height: 28px;
+}
+
+.footer {
+    border-top: 1px solid $border;
+    padding-top: 12px;
+}
+
+.timeRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.timeLabel {
+    font-size: $fs-xs;
+}
+
+.timeInput {
+    flex: 1;
+    font-size: $fs-xs;
+    padding: 4px;
+}
+
+.confirmBtn {
+    background: $primary;
+    color: $primary-foreground;
+    border: none;
+    padding: 6px 12px;
+    border-radius: $radius-md;
+    cursor: pointer;
+}
+
+.confirmDim {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.preview {
+    font-size: $fs-xs;
+    color: $gray-500;
+    margin-top: 8px;
+}

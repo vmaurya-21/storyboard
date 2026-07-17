@@ -1,0 +1,40 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+  "solution": {
+    "name": "spx-reporter-daily-storydragdrop-client-side-solution",
+    "id": "d8e43e71-c8e2-4bcc-8488-5cc17e00c59e",
+    "version": "1.0.0.0",
+    "includeClientSideAssets": true,
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false,
+    "developer": {
+      "name": "",
+      "websiteUrl": "",
+      "privacyUrl": "",
+      "termsOfUseUrl": "",
+      "mpnId": "Undefined-1.22.1"
+    },
+    "metadata": {
+      "shortDescription": {
+        "default": "spx-reporter-daily-storydragdrop description"
+      },
+      "longDescription": {
+        "default": "spx-reporter-daily-storydragdrop description"
+      },
+      "screenshotPaths": [],
+      "videoUrl": "",
+      "categories": []
+    },
+    "features": [
+      {
+        "title": "spx-reporter-daily-storydragdrop Feature",
+        "description": "The feature that activates elements of the spx-reporter-daily-storydragdrop solution.",
+        "id": "9cea1e27-25f9-4a21-98b7-b12b1314c487",
+        "version": "1.0.0.0"
+      }
+    ]
+  },
+  "paths": {
+    "zippedPackage": "solution/spx-reporter-daily-storydragdrop.sppkg"
+  }
+}

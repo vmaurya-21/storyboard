@@ -1,0 +1,23 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "whichFolder": "subdir",
+    "solutionName": "spx-reporter-daily-storydragdrop",
+    "environment": "spo",
+    "skipFeatureDeployment": true,
+    "useGulp": false,
+    "componentType": "webpart",
+    "template": "react",
+    "componentName": "SpxReporterDailyStoryDragDrop",
+    "componentDescription": "Daily reporter story drag and drop web part",
+    "plusBeta": false,
+    "isCreatingSolution": true,
+    "nodeVersion": "24.18.0",
+    "sdksVersions": {},
+    "version": "1.22.1",
+    "libraryName": "spx-reporter-daily-storydragdrop",
+    "libraryId": "d8e43e71-c8e2-4bcc-8488-5cc17e00c59e",
+    "packageManager": "npm",
+    "solutionShortDescription": "spx-reporter-daily-storydragdrop description",
+    "isDomainIsolated": false
+  }
+}

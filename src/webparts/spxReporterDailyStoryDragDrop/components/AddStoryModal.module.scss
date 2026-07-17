@@ -1,0 +1,290 @@
+@import 'tokens';
+
+// =============================================================
+// Add / Edit Story dialog — ported from the reference shadcn Dialog
+// (overlay black/50, rounded-lg card, cyan primary CTA).
+// =============================================================
+
+.modalOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 16px;
+    font-family: $font-family;
+    animation: fadeIn 0.2s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.modalContent {
+    position: relative;
+    background: $card;
+    border: 1px solid $border;
+    border-radius: $radius-lg;
+    width: 100%;
+    max-width: 512px; // max-w-lg
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: $shadow-lg;
+    animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(8px) scale(0.98); opacity: 0; }
+    to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.modalHeader {
+    padding: 24px 24px 8px 24px;
+    display: block;
+    text-align: center;
+
+    @media (min-width: #{$bp-sm}) {
+        padding: 20px 24px;
+        text-align: left;
+    }
+
+    h2 {
+        margin: 0;
+        font-size: $fs-lg;
+        font-weight: $fw-semibold;
+        color: $foreground;
+        line-height: $leading-tight;
+    }
+}
+
+.closeBtn {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: transparent;
+    border: 1px solid transparent;
+    font-size: 22px;
+    line-height: 1;
+    color: $muted-foreground;
+    cursor: pointer;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: $radius-sm;
+    transition: border-color 0.2s ease, color 0.2s ease;
+    z-index: 10;
+
+    &:hover {
+        border-color: $foreground;
+        color: $foreground;
+        background: transparent;
+    }
+}
+
+.modalBody {
+    padding: 0 24px 8px;
+    overflow-y: auto;
+    flex: 1;
+    padding-right: 20px; // extra padding to keep inputs clear of scrollbar
+
+    // Firefox scrollbar styling — keep these plain declarations BEFORE the
+    // nested &::-webkit-* rules to avoid Sass's mixed-declarations warning.
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+
+    // Custom scrollbar styling (WebKit)
+    &::-webkit-scrollbar {
+        width: 6px;
+    }
+    &::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    &::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.15);
+        border-radius: 99px;
+    }
+    &::-webkit-scrollbar-thumb:hover {
+        background: rgba(0, 0, 0, 0.3);
+    }
+}
+
+.modalDescription {
+    margin: 0 0 12px 0;
+    font-size: $fs-sm;
+    color: $muted-foreground;
+    line-height: $leading-normal;
+    text-align: center;
+
+    @media (min-width: #{$bp-sm}) {
+        text-align: left;
+    }
+}
+
+.modalTip {
+    font-size: $fs-xs;
+    color: #2563eb; // text-blue-600
+    margin: 0 0 20px 0;
+    line-height: 1.4;
+    text-align: center;
+
+    @media (min-width: #{$bp-sm}) {
+        text-align: left;
+    }
+}
+
+.formGroup {
+    margin-bottom: 16px;
+
+    label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: $fs-sm;
+        font-weight: $fw-medium;
+        color: $foreground;
+    }
+
+    input,
+    textarea {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid $border;
+        border-radius: $radius-md;
+        background: $input-background;
+        color: $foreground;
+        font-family: inherit;
+        font-size: $fs-sm;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+        &::placeholder {
+            color: $muted-foreground;
+        }
+
+        &:focus {
+            outline: none;
+            border-color: $primary;
+            box-shadow: 0 0 0 3px rgba($primary, 0.15);
+        }
+    }
+
+    input {
+        height: 40px;
+    }
+
+    textarea {
+        resize: vertical;
+        min-height: 80px;
+        line-height: $leading-normal;
+    }
+}
+
+.required {
+    color: #b91c1c; // text-red-700
+}
+
+.optional {
+    color: $muted-foreground;
+    font-weight: $fw-normal;
+    font-size: $fs-xs;
+}
+
+.inputError {
+    border-color: $destructive !important;
+}
+
+.errorMessage {
+    display: block;
+    margin-top: 6px;
+    font-size: $fs-xs;
+    color: $destructive;
+}
+
+// ---- Footer -------------------------------------------------
+.modalFooter,
+.modalFooterWithDelete {
+    padding: 16px 24px 24px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.modalFooter {
+    justify-content: flex-end;
+}
+
+.modalFooterWithDelete {
+    justify-content: space-between;
+}
+
+.buttonGroup {
+    display: flex;
+    gap: 12px;
+}
+
+%dialogBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 16px;
+    border-radius: $radius-md;
+    font-family: inherit;
+    font-size: $fs-sm;
+    font-weight: $fw-medium;
+    cursor: pointer;
+    border: none;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+
+    i {
+        font-size: 16px;
+    }
+}
+
+.btnCancel {
+    @extend %dialogBtn;
+    background: $background;
+    color: $foreground;
+    border: 1px solid $border;
+
+    &:hover {
+        background: $accent;
+    }
+}
+
+.btnSave {
+    @extend %dialogBtn;
+    background: $primary;
+    color: $primary-foreground;
+
+    &:hover {
+        background: $primary-hover;
+    }
+}
+
+.btnDelete {
+    @extend %dialogBtn;
+    background: $destructive;
+    color: $destructive-foreground;
+
+    &:hover {
+        background: $destructive-hover;
+    }
+}
+
+// ---- Responsive ---------------------------------------------
+@media (max-width: #{$bp-sm - 1px}) {
+    .modalHeader,
+    .modalBody,
+    .modalFooter,
+    .modalFooterWithDelete {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+}

@@ -1,0 +1,107 @@
+@import '../tokens';
+
+// =============================================================
+// Board slot — fixed heights per size, ported from the reference
+// StorySlot getSlotHeight() (mobile → md).
+// =============================================================
+
+.cardSlot {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    border-radius: $radius-xl;
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+
+    // default (medium) mobile height
+    height: $slot-medium-mobile;
+}
+
+.cardWrapper {
+    height: 100%;
+    width: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    overflow: hidden;
+}
+
+// ---- Empty slot ---------------------------------------------
+.emptySlot {
+    height: 100%;
+    width: 100%;
+    background: $gray-50;
+    border: 2px dashed $gray-300;
+    border-radius: $radius-xl;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+
+    &:hover {
+        border-color: $blue-400;
+        background: $blue-50;
+    }
+}
+
+.plusIcon {
+    color: $gray-400;
+    font-size: 32px !important;
+    line-height: 1;
+    user-select: none;
+}
+
+.cardSlot.draggingOver .emptySlot {
+    border-color: $blue-400;
+    background: $blue-50;
+    box-shadow: 0 0 0 3px rgba($blue-400, 0.25);
+}
+
+// ---- Size variants (mobile) ---------------------------------
+.medium {
+    height: $slot-medium-mobile;
+}
+.small {
+    height: $slot-small-mobile;
+}
+.tall {
+    height: $slot-tall-mobile;
+}
+.large,
+.fullHeight {
+    height: $slot-large-mobile;
+}
+.horizontal {
+    height: $slot-medium-mobile;
+}
+.general {
+    height: 160px;
+}
+.textOnly {
+    height: $slot-small-mobile;
+}
+
+// ---- Size variants (>= md) ----------------------------------
+@media (min-width: #{$bp-md}) {
+    .medium {
+        height: $slot-medium;
+    }
+    .small {
+        height: $slot-small;
+    }
+    .tall {
+        height: $slot-tall;
+    }
+    .large,
+    .fullHeight {
+        height: 100%;
+    }
+    .horizontal {
+        height: $slot-medium;
+    }
+    .general {
+        height: 100%;
+    }
+    .textOnly {
+        height: $slot-small;
+    }
+}
