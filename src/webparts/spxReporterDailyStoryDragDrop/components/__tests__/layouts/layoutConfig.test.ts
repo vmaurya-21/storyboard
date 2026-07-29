@@ -6,7 +6,7 @@ describe('Layout Config', () => {
       const config = getLayoutConfig('reporterDaily');
       
       expect(config.id).toBe('reporterDaily');
-      expect(config.name).toBe('Reporter Daily');
+      expect(config.name).toBe('Reporter Daily Site');
       expect(config.slots).toHaveLength(5);
     });
 
@@ -23,7 +23,7 @@ describe('Layout Config', () => {
       
       expect(config.id).toBe('highlight');
       expect(config.name).toBe('Highlight');
-      expect(config.slots).toHaveLength(0);
+      expect(config.slots).toHaveLength(5);
     });
   });
 
@@ -34,32 +34,32 @@ describe('Layout Config', () => {
       const slotIds = config.slots.map(slot => slot.id);
       
       expect(slotIds).toEqual([
-        'rd-slot-1',
-        'rd-slot-2',
-        'rd-slot-3',
-        'rd-slot-4',
-        'rd-slot-5'
+        'slot-1',
+        'slot-2',
+        'slot-3',
+        'slot-4',
+        'slot-5'
       ]);
     });
 
     it('should have correct variants', () => {
-      expect(config.slots[0].variant).toBe('large');
-      expect(config.slots[1].variant).toBe('horizontal');
+      expect(config.slots[0].variant).toBe('medium');
+      expect(config.slots[1].variant).toBe('medium');
       expect(config.slots[2].variant).toBe('small');
-      expect(config.slots[3].variant).toBe('large');
-      expect(config.slots[4].variant).toBe('fullHeight');
+      expect(config.slots[3].variant).toBe('tall');
+      expect(config.slots[4].variant).toBe('large');
     });
 
     it('should have text-only slot without image', () => {
       const textOnlySlot = config.slots.find(slot => slot.showImage === false);
       
       expect(textOnlySlot).toBeDefined();
-      expect(textOnlySlot?.id).toBe('rd-slot-3');
+      expect(textOnlySlot?.id).toBe('slot-3');
     });
 
     it('should have correct grid template', () => {
       expect(config.gridTemplate.columns).toBe('1fr 1fr 1fr');
-      expect(config.gridTemplate.rows).toBe('60% 40%');
+      expect(config.gridTemplate.rows).toBe('auto auto');
       expect(config.gridTemplate.areas).toBeDefined();
     });
   });
@@ -97,17 +97,20 @@ describe('Layout Config', () => {
   });
 
   describe('AVAILABLE_LAYOUTS', () => {
-    it('should include reporterDaily and general', () => {
-      expect(AVAILABLE_LAYOUTS).toContain('reporterDaily');
-      expect(AVAILABLE_LAYOUTS).toContain('general');
+    it('should offer connectHomepage', () => {
+      expect(AVAILABLE_LAYOUTS).toContain('connectHomepage');
     });
 
     it('should not include highlight', () => {
       expect(AVAILABLE_LAYOUTS).not.toContain('highlight');
     });
 
-    it('should have 2 available layouts', () => {
-      expect(AVAILABLE_LAYOUTS).toHaveLength(2);
+    it('should expose a single selectable layout', () => {
+      expect(AVAILABLE_LAYOUTS).toHaveLength(1);
+    });
+
+    it('should only list layouts that exist in LAYOUTS', () => {
+      AVAILABLE_LAYOUTS.forEach(id => expect(LAYOUTS[id]).toBeDefined());
     });
   });
 });

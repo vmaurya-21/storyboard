@@ -1,4 +1,3 @@
-// Mock @microsoft/sp-component-base
 export interface IReadonlyTheme {
   isInverted?: boolean;
   semanticColors?: {

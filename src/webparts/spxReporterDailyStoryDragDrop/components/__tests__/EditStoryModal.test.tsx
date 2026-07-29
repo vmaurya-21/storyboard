@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import EditStoryModal from '../EditStoryModal';
 import { IStory } from '../types';
 
-// Mock window.confirm
 globalThis.confirm = jest.fn() as any;
 
 describe('EditStoryModal Component', () => {
@@ -149,9 +148,7 @@ describe('EditStoryModal Component', () => {
     });
   });
 
-  it('should call onDelete when delete button clicked and confirmed', () => {
-    (globalThis.confirm as jest.Mock).mockReturnValue(true);
-    
+  it('should call onDelete when delete is confirmed in the dialog', () => {
     render(
       <EditStoryModal
         story={mockStory}
@@ -160,18 +157,15 @@ describe('EditStoryModal Component', () => {
         onDelete={mockOnDelete}
       />
     );
-    
-    const deleteButton = screen.getByText('Delete');
-    fireEvent.click(deleteButton);
-    
-    expect(globalThis.confirm).toHaveBeenCalledWith('Are you sure you want to delete this story?');
+
+    fireEvent.click(screen.getByText('Delete Story'));
+    fireEvent.click(screen.getByText('Delete'));
+
     expect(mockOnDelete).toHaveBeenCalledWith('story-1');
     expect(mockOnClose).toHaveBeenCalled();
   });
 
-  it('should not delete when user cancels confirmation', () => {
-    (globalThis.confirm as jest.Mock).mockReturnValue(false);
-    
+  it('should not delete when the confirmation is cancelled', () => {
     render(
       <EditStoryModal
         story={mockStory}
@@ -180,11 +174,11 @@ describe('EditStoryModal Component', () => {
         onDelete={mockOnDelete}
       />
     );
-    
-    const deleteButton = screen.getByText('Delete');
-    fireEvent.click(deleteButton);
-    
-    expect(globalThis.confirm).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('Delete Story'));
+    const cancelButtons = screen.getAllByText('Cancel');
+    fireEvent.click(cancelButtons[cancelButtons.length - 1]);
+
     expect(mockOnDelete).not.toHaveBeenCalled();
     expect(mockOnClose).not.toHaveBeenCalled();
   });
@@ -221,7 +215,7 @@ describe('EditStoryModal Component', () => {
     expect(mockOnClose).toHaveBeenCalledTimes(1);
   });
 
-  it('should use default values for empty optional fields', async () => {
+  it('should pass a blank description when cleared', async () => {
     render(
       <EditStoryModal
         story={mockStory}
@@ -230,24 +224,19 @@ describe('EditStoryModal Component', () => {
         onDelete={mockOnDelete}
       />
     );
-    
+
     const descInput = screen.getByLabelText(/description/i);
-    const imageInput = screen.getByLabelText(/image url/i);
-    const linkInput = screen.getByLabelText(/link to post/i);
-    
     await userEvent.clear(descInput);
-    await userEvent.clear(imageInput);
-    await userEvent.clear(linkInput);
-    
+
     const saveButton = screen.getByText('Save');
     fireEvent.click(saveButton);
-    
+
     await waitFor(() => {
       expect(mockOnUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
-          description: '(optional)',
-          imageUrl: 'https://www.spxdaily.com/images-bg/extra-solar-flares-patch-bg.jpg',
-          linkToPost: '#'
+          description: '',
+          imageUrl: 'https://example.com/original.jpg',
+          linkToPost: 'https://example.com/original'
         })
       );
     });

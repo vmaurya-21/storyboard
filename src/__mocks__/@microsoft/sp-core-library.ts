@@ -1,4 +1,3 @@
-// Mock @microsoft/sp-core-library
 export class Version {
   public major: number = 1;
   public minor: number = 0;

@@ -7,17 +7,14 @@ import {
   deleteStory,
   ensureListExists,
   IStoryItem
-} from '../sharePointService';
+} from '../availableStoriesService';
 import { IWebPartContext } from '@microsoft/sp-webpart-base';
 import { spfi } from '@pnp/sp';
 
-// The @pnp/sp mock is already defined in src/__mocks__/@pnp/sp.ts
-// We just need to get the mock functions
 
-// Current list the service targets.
 const LIST_NAME = 'Available Stories';
 
-describe('sharePointService', () => {
+describe('availableStoriesService', () => {
   let mockContext: IWebPartContext;
   let mockSpfi: jest.Mock;
   let mockGetByTitle: jest.Mock;
@@ -27,19 +24,17 @@ describe('sharePointService', () => {
   let mockUpdate: jest.Mock;
   let mockDelete: jest.Mock;
   let mockSelect: jest.Mock;
-  let mockSelectInvoke: jest.Mock; // `.select(...)` returns this; calling it resolves the rows
+  let mockSelectInvoke: jest.Mock;
   let mockLists: jest.Mock;
   let mockListsAdd: jest.Mock;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let mockFields: any; // object so we can attach the field-add helpers
+  let mockFields: any;
   let mockAddText: jest.Mock;
   let mockAddDateTime: jest.Mock;
 
   beforeEach(() => {
-    // Reset all mocks before each test
     jest.clearAllMocks();
 
-    // Create mock context
     mockContext = {
       pageContext: {
         web: {
@@ -56,7 +51,6 @@ describe('sharePointService', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
 
-    // Setup mock functions
     mockAdd = jest.fn();
     mockUpdate = jest.fn();
     mockDelete = jest.fn();
@@ -74,7 +68,6 @@ describe('sharePointService', () => {
     mockLists = jest.fn();
     mockGetByTitle = jest.fn();
 
-    // Setup the mock chain
     mockGetById.mockReturnValue({
       update: mockUpdate,
       delete: mockDelete
@@ -89,7 +82,6 @@ describe('sharePointService', () => {
       fields: mockFields
     });
 
-    // Setup spfi mock
     mockSpfi = spfi as jest.Mock;
     mockSpfi.mockReturnValue({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -150,7 +142,7 @@ describe('sharePointService', () => {
       initializeSharePoint(mockContext);
     });
 
-    it('should create a story successfully (active, with URL fields)', async () => {
+    it('should create a story successfully (with URL fields)', async () => {
       const mockAddResult = { data: { ID: 1 }, item: {} };
       mockAdd.mockResolvedValue(mockAddResult);
 
@@ -160,7 +152,7 @@ describe('sharePointService', () => {
       expect(mockAdd).toHaveBeenCalledWith({
         Title: mockStory.title,
         description: mockStory.description,
-        IsActive: 'Yes',
+        Source: 'external',
         imageUrl: { Url: mockStory.imageUrl },
         linkToPost: { Url: mockStory.linkToPost }
       });
@@ -180,7 +172,7 @@ describe('sharePointService', () => {
       expect(mockAdd).toHaveBeenCalledWith({
         Title: storyWithoutOptionals.title,
         description: '',
-        IsActive: 'Yes',
+        Source: 'internal',
         imageUrl: { Url: storyWithoutOptionals.imageUrl }
       });
     });
@@ -227,7 +219,8 @@ describe('sharePointService', () => {
         imageUrl: 'https://example.com/image1.jpg',
         linkToPost: 'https://example.com/post1',
         date: '',
-        created: ''
+        created: '',
+        source: 'external'
       });
       expect(stories[1].imageUrl).toBe('https://example.com/image2.jpg');
     });
@@ -263,7 +256,8 @@ describe('sharePointService', () => {
         imageUrl: '',
         linkToPost: '',
         date: '',
-        created: ''
+        created: '',
+        source: 'internal'
       });
     });
 
@@ -282,18 +276,6 @@ describe('sharePointService', () => {
 
       expect(stories[0].date).toBe('2026-01-02T03:04:05Z');
       expect(stories[0].created).toBe('2025-12-31T00:00:00Z');
-    });
-
-    it('should exclude inactive (IsActive = "No") stories', async () => {
-      mockSelectInvoke.mockResolvedValue([
-        { ID: 1, Title: 'Active (no flag)' },
-        { ID: 2, Title: 'Inactive', IsActive: 'No' },
-        { ID: 3, Title: 'Active', IsActive: 'Yes' }
-      ]);
-
-      const stories = await getStories();
-
-      expect(stories.map(s => s.id)).toEqual([1, 3]);
     });
 
     it('should handle API errors', async () => {
@@ -325,6 +307,7 @@ describe('sharePointService', () => {
       expect(mockUpdate).toHaveBeenCalledWith({
         Title: mockStory.title,
         description: mockStory.description,
+        Source: 'external',
         imageUrl: { Url: mockStory.imageUrl },
         linkToPost: { Url: mockStory.linkToPost }
       });
@@ -343,6 +326,7 @@ describe('sharePointService', () => {
       expect(mockUpdate).toHaveBeenCalledWith({
         Title: storyWithoutOptionals.title,
         description: '',
+        Source: 'internal',
         imageUrl: { Url: storyWithoutOptionals.imageUrl }
       });
     });
@@ -354,24 +338,24 @@ describe('sharePointService', () => {
     });
   });
 
-  describe('deleteStory (soft delete)', () => {
+  describe('deleteStory (hard delete)', () => {
     beforeEach(() => {
       initializeSharePoint(mockContext);
     });
 
-    it('should deactivate the story (IsActive = "No") instead of hard-deleting', async () => {
-      mockUpdate.mockResolvedValue(undefined);
+    it('should permanently delete the story from the list', async () => {
+      mockDelete.mockResolvedValue(undefined);
 
       await deleteStory(1);
 
       expect(mockGetByTitle).toHaveBeenCalledWith(LIST_NAME);
       expect(mockGetById).toHaveBeenCalledWith(1);
-      expect(mockUpdate).toHaveBeenCalledWith({ IsActive: 'No' });
-      expect(mockDelete).not.toHaveBeenCalled();
+      expect(mockDelete).toHaveBeenCalled();
+      expect(mockUpdate).not.toHaveBeenCalled();
     });
 
     it('should handle API errors', async () => {
-      mockUpdate.mockRejectedValue(new Error('Delete failed'));
+      mockDelete.mockRejectedValue(new Error('Delete failed'));
 
       await expect(deleteStory(1)).rejects.toThrow('Delete failed');
     });
@@ -415,11 +399,10 @@ describe('sharePointService', () => {
 
   describe('when SharePoint is not initialized', () => {
     it('getStories rejects with a clear error', async () => {
-      // Load a fresh, un-initialized copy of the module.
-      let fresh: typeof import('../sharePointService') | undefined;
+      let fresh: typeof import('../availableStoriesService') | undefined;
       jest.isolateModules(() => {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        fresh = require('../sharePointService');
+        fresh = require('../availableStoriesService');
       });
 
       await expect(fresh!.getStories()).rejects.toThrow('SharePoint not initialized');

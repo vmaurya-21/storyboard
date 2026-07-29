@@ -1,10 +1,5 @@
 @import '../tokens';
 
-// =============================================================
-// Board card — three render layouts ported from the reference
-// StorySlot: full-image (overlay caption), thumbnail-text
-// (horizontal), and text-only.
-// =============================================================
 
 .storyCard {
     position: relative;
@@ -29,7 +24,6 @@
     }
 }
 
-// ---- Image + zoom-on-hover ----------------------------------
 .imageContainer {
     position: absolute;
     inset: 0;
@@ -49,7 +43,6 @@
     transform: scale(1.1);
 }
 
-// ---- Overlays (grip / featured / remove) --------------------
 .overlayTopLeft {
     position: absolute;
     top: 8px;
@@ -79,24 +72,6 @@
     }
 }
 
-.featuredBadge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    border-radius: $radius-md;
-    background: $yellow-500;
-    color: #ffffff;
-    font-size: $fs-11;
-    font-weight: $fw-medium;
-    line-height: 1;
-    white-space: nowrap;
-
-    i {
-        font-size: 12px;
-    }
-}
-
 .removeBtn {
     display: inline-flex;
     align-items: center;
@@ -120,7 +95,6 @@
     }
 }
 
-// On desktop the remove control only appears on card hover.
 @media (min-width: #{$bp-md}) {
     .removeBtn {
         width: 24px;
@@ -141,7 +115,6 @@
     }
 }
 
-// ---- Caption bar (full-image) -------------------------------
 .caption {
     position: absolute;
     left: 0;
@@ -167,7 +140,6 @@
     overflow: hidden;
 }
 
-// ---- Meta row (date • read • source) ------------------------
 .metaRow {
     display: flex;
     align-items: center;
@@ -204,7 +176,6 @@
     }
 }
 
-// ---- Source badge -------------------------------------------
 .sourceBadge {
     display: inline-flex;
     align-items: center;
@@ -248,7 +219,6 @@
     }
 }
 
-// ---- Thumbnail-text layout ----------------------------------
 .thumbnailText {
     box-sizing: border-box;
     height: 100%;
@@ -337,7 +307,6 @@
     }
 }
 
-// ---- Text-only layout ---------------------------------------
 .textOnlyLayout {
     padding: 0 !important;
     background: $gray-50;
@@ -399,14 +368,6 @@
     }
 }
 
-// ---- Featured accent ----------------------------------------
-.storyCard.featured {
-    box-shadow: 0 0 0 2px rgba($yellow-400, 0.6);
-}
-
-// ---- Size-variant markers -----------------------------------
-// Slot heights live on CardSlot; these class hooks are kept so the
-// `styles[variant]` lookup stays typed and legacy callers/tests resolve.
 .large,
 .medium,
 .small,

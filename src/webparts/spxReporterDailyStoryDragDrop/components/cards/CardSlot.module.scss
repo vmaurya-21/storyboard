@@ -1,9 +1,5 @@
 @import '../tokens';
 
-// =============================================================
-// Board slot — fixed heights per size, ported from the reference
-// StorySlot getSlotHeight() (mobile → md).
-// =============================================================
 
 .cardSlot {
     position: relative;
@@ -12,7 +8,6 @@
     border-radius: $radius-xl;
     transition: box-shadow 0.3s ease, transform 0.3s ease;
 
-    // default (medium) mobile height
     height: $slot-medium-mobile;
 }
 
@@ -24,7 +19,6 @@
     overflow: hidden;
 }
 
-// ---- Empty slot ---------------------------------------------
 .emptySlot {
     height: 100%;
     width: 100%;
@@ -56,7 +50,6 @@
     box-shadow: 0 0 0 3px rgba($blue-400, 0.25);
 }
 
-// ---- Size variants (mobile) ---------------------------------
 .medium {
     height: $slot-medium-mobile;
 }
@@ -80,7 +73,6 @@
     height: $slot-small-mobile;
 }
 
-// ---- Size variants (>= md) ----------------------------------
 @media (min-width: #{$bp-md}) {
     .medium {
         height: $slot-medium;

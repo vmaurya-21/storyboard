@@ -4,8 +4,14 @@ import { DndContext } from '@dnd-kit/core';
 import LayoutRenderer from '../../layouts/LayoutRenderer';
 import { SlotStoryMap } from '../../types';
 import { mockStories } from '../mockData';
+import * as layoutConfigModule from '../../layouts/layoutConfig';
 
-// Mock CardSlot to expose onRemove callbacks
+const storyCarouselMock = jest.fn((_props: any) => <div data-testid="story-carousel" />);
+jest.mock('../../StoryCarousel', () => ({
+  __esModule: true,
+  default: (props: any) => storyCarouselMock(props),
+}));
+
 jest.mock('../../cards/CardSlot', () => {
   return function MockCardSlot({ slotId, story, onRemove }: any) {
     return (
@@ -23,7 +29,6 @@ jest.mock('../../cards/CardSlot', () => {
   };
 });
 
-// Wrapper component to provide DndContext
 const DndWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <DndContext onDragEnd={() => {}}>{children}</DndContext>
 );
@@ -49,15 +54,14 @@ describe('LayoutRenderer Component', () => {
         </DndWrapper>
       );
       
-      // Should render 5 empty slots (+ symbols)
       const plusSigns = screen.getAllByText('+');
       expect(plusSigns).toHaveLength(5);
     });
 
     it('should render stories in correct slots', () => {
       const slotStories: SlotStoryMap = {
-        'rd-slot-1': mockStories[0],
-        'rd-slot-3': mockStories[1]
+        'slot-1': mockStories[0],
+        'slot-3': mockStories[1]
       };
       
       render(
@@ -73,14 +77,13 @@ describe('LayoutRenderer Component', () => {
       expect(screen.getByText(mockStories[0].title)).toBeInTheDocument();
       expect(screen.getByText(mockStories[1].title)).toBeInTheDocument();
       
-      // Should have 3 empty slots
       const plusSigns = screen.getAllByText('+');
       expect(plusSigns).toHaveLength(3);
     });
 
     it('should call onRemoveStory for rd-slot-1', () => {
       const slotStories: SlotStoryMap = {
-        'rd-slot-1': mockStories[0]
+        'slot-1': mockStories[0]
       };
       
       render(
@@ -96,16 +99,16 @@ describe('LayoutRenderer Component', () => {
       const removeButton = screen.getByTitle('Remove story');
       fireEvent.click(removeButton);
       
-      expect(mockOnRemoveStory).toHaveBeenCalledWith('rd-slot-1');
+      expect(mockOnRemoveStory).toHaveBeenCalledWith('slot-1');
     });
 
     it('should call onRemoveStory for all reporter daily slots', () => {
       const slotStories: SlotStoryMap = {
-        'rd-slot-1': mockStories[0],
-        'rd-slot-2': mockStories[1],
-        'rd-slot-3': mockStories[2],
-        'rd-slot-4': { ...mockStories[0], id: 'story-4', title: 'Story 4' },
-        'rd-slot-5': { ...mockStories[1], id: 'story-5', title: 'Story 5' }
+        'slot-1': mockStories[0],
+        'slot-2': mockStories[1],
+        'slot-3': mockStories[2],
+        'slot-4': { ...mockStories[0], id: 'story-4', title: 'Story 4' },
+        'slot-5': { ...mockStories[1], id: 'story-5', title: 'Story 5' }
       };
       
       render(
@@ -121,30 +124,29 @@ describe('LayoutRenderer Component', () => {
       const removeButtons = screen.getAllByTitle('Remove story');
       expect(removeButtons).toHaveLength(5);
       
-      // Test each slot's remove button
       fireEvent.click(removeButtons[0]);
-      expect(mockOnRemoveStory).toHaveBeenCalledWith('rd-slot-1');
+      expect(mockOnRemoveStory).toHaveBeenCalledWith('slot-1');
       
       fireEvent.click(removeButtons[1]);
-      expect(mockOnRemoveStory).toHaveBeenCalledWith('rd-slot-2');
+      expect(mockOnRemoveStory).toHaveBeenCalledWith('slot-2');
       
       fireEvent.click(removeButtons[2]);
-      expect(mockOnRemoveStory).toHaveBeenCalledWith('rd-slot-3');
+      expect(mockOnRemoveStory).toHaveBeenCalledWith('slot-3');
       
       fireEvent.click(removeButtons[3]);
-      expect(mockOnRemoveStory).toHaveBeenCalledWith('rd-slot-4');
+      expect(mockOnRemoveStory).toHaveBeenCalledWith('slot-4');
       
       fireEvent.click(removeButtons[4]);
-      expect(mockOnRemoveStory).toHaveBeenCalledWith('rd-slot-5');
+      expect(mockOnRemoveStory).toHaveBeenCalledWith('slot-5');
     });
 
     it('should render all reporter daily slots with stories', () => {
       const slotStories: SlotStoryMap = {
-        'rd-slot-1': mockStories[0],
-        'rd-slot-2': mockStories[1],
-        'rd-slot-3': mockStories[2],
-        'rd-slot-4': { ...mockStories[0], id: 'story-4', title: 'Story 4' },
-        'rd-slot-5': { ...mockStories[1], id: 'story-5', title: 'Story 5' }
+        'slot-1': mockStories[0],
+        'slot-2': mockStories[1],
+        'slot-3': mockStories[2],
+        'slot-4': { ...mockStories[0], id: 'story-4', title: 'Story 4' },
+        'slot-5': { ...mockStories[1], id: 'story-5', title: 'Story 5' }
       };
       
       render(
@@ -165,6 +167,33 @@ describe('LayoutRenderer Component', () => {
     });
   });
 
+  describe('Connect Homepage Layout', () => {
+    it('delegates rendering to StoryCarousel with slot ids and handlers', () => {
+      const slotStories: SlotStoryMap = {
+        'car-slot-1': mockStories[0]
+      };
+
+      render(
+        <DndWrapper>
+          <LayoutRenderer
+            layoutType="connectHomepage"
+            slotStories={slotStories}
+            onRemoveStory={mockOnRemoveStory}
+            onSlotLayoutChange={jest.fn()}
+          />
+        </DndWrapper>
+      );
+
+      expect(screen.getByTestId('story-carousel')).toBeInTheDocument();
+      expect(storyCarouselMock).toHaveBeenCalled();
+      expect(storyCarouselMock.mock.calls.length).toBeGreaterThan(0);
+      const firstCallProps = storyCarouselMock.mock.calls[0][0] as any;
+      expect(Array.isArray(firstCallProps.slotIds)).toBe(true);
+      expect(firstCallProps.onRemoveStory).toBeDefined();
+      expect(firstCallProps.isAdminMode).toBe(true);
+    });
+  });
+
   describe('General Layout', () => {
     it('should render 6 card slots for general layout', () => {
       const slotStories: SlotStoryMap = {};
@@ -179,7 +208,6 @@ describe('LayoutRenderer Component', () => {
         </DndWrapper>
       );
       
-      // Should render 6 empty slots
       const plusSigns = screen.getAllByText('+');
       expect(plusSigns).toHaveLength(6);
     });
@@ -260,8 +288,8 @@ describe('LayoutRenderer Component', () => {
     });
   });
 
-  describe('Highlight Layout (Empty)', () => {
-    it('should show empty state for highlight layout', () => {
+  describe('Highlight Layout', () => {
+    it('should render 5 card slots for highlight layout', () => {
       const slotStories: SlotStoryMap = {};
       
       render(
@@ -274,8 +302,46 @@ describe('LayoutRenderer Component', () => {
         </DndWrapper>
       );
       
-      expect(screen.getByText('This layout is not yet configured.')).toBeInTheDocument();
-      expect(screen.getByText('Please select a different layout.')).toBeInTheDocument();
+      const plusSigns = screen.getAllByText('+');
+      expect(plusSigns).toHaveLength(5);
+    });
+
+    it('calls onRemoveStory for all highlight slots', () => {
+      const slotStories: SlotStoryMap = {
+        'slot-1': mockStories[0],
+        'slot-2': mockStories[1],
+        'slot-3': mockStories[2],
+        'slot-4': { ...mockStories[0], id: 'story-4', title: 'Story 4' },
+        'slot-5': { ...mockStories[1], id: 'story-5', title: 'Story 5' }
+      };
+
+      render(
+        <DndWrapper>
+          <LayoutRenderer
+            layoutType="highlight"
+            slotStories={slotStories}
+            onRemoveStory={mockOnRemoveStory}
+          />
+        </DndWrapper>
+      );
+
+      const removeButtons = screen.getAllByTitle('Remove story');
+      expect(removeButtons).toHaveLength(5);
+
+      fireEvent.click(removeButtons[0]);
+      expect(mockOnRemoveStory).toHaveBeenCalledWith('slot-1');
+
+      fireEvent.click(removeButtons[1]);
+      expect(mockOnRemoveStory).toHaveBeenCalledWith('slot-4');
+
+      fireEvent.click(removeButtons[2]);
+      expect(mockOnRemoveStory).toHaveBeenCalledWith('slot-2');
+
+      fireEvent.click(removeButtons[3]);
+      expect(mockOnRemoveStory).toHaveBeenCalledWith('slot-5');
+
+      fireEvent.click(removeButtons[4]);
+      expect(mockOnRemoveStory).toHaveBeenCalledWith('slot-3');
     });
   });
 
@@ -326,7 +392,7 @@ describe('LayoutRenderer Component', () => {
       expect(screen.getByText(mockStories[0].title)).toBeInTheDocument();
       
       const rdSlotStories: SlotStoryMap = {
-        'rd-slot-1': mockStories[1]
+        'slot-1': mockStories[1]
       };
       
       rerender(
@@ -343,10 +409,40 @@ describe('LayoutRenderer Component', () => {
     });
   });
 
+  describe('Fallback Empty Layout Branch', () => {
+    it('shows empty layout copy when layout config has no slots', () => {
+      const spy = jest.spyOn(layoutConfigModule, 'getLayoutConfig').mockReturnValueOnce({
+        id: 'general',
+        name: 'General',
+        description: 'General layout',
+        slots: [],
+        gridTemplate: {
+          columns: '1fr',
+          rows: '1fr',
+          areas: '"a"'
+        }
+      });
+
+      render(
+        <DndWrapper>
+          <LayoutRenderer
+            layoutType="general"
+            slotStories={{}}
+            onRemoveStory={mockOnRemoveStory}
+          />
+        </DndWrapper>
+      );
+
+      expect(screen.getByText('This layout is not yet configured.')).toBeInTheDocument();
+      expect(screen.getByText('Please select a different layout.')).toBeInTheDocument();
+      spy.mockRestore();
+    });
+  });
+
   describe('Edge Cases', () => {
     it('should handle undefined story in slot', () => {
       const slotStories: SlotStoryMap = {
-        'rd-slot-1': undefined as any
+        'slot-1': undefined as any
       };
       
       render(
@@ -359,15 +455,14 @@ describe('LayoutRenderer Component', () => {
         </DndWrapper>
       );
       
-      // Should render empty slots
       const plusSigns = screen.getAllByText('+');
       expect(plusSigns).toHaveLength(5);
     });
 
     it('should handle mixed empty and filled slots', () => {
       const slotStories: SlotStoryMap = {
-        'rd-slot-2': mockStories[0],
-        'rd-slot-4': mockStories[1]
+        'slot-2': mockStories[0],
+        'slot-4': mockStories[1]
       };
       
       render(
@@ -383,9 +478,47 @@ describe('LayoutRenderer Component', () => {
       expect(screen.getByText(mockStories[0].title)).toBeInTheDocument();
       expect(screen.getByText(mockStories[1].title)).toBeInTheDocument();
       
-      // Should have 3 empty slots
       const plusSigns = screen.getAllByText('+');
       expect(plusSigns).toHaveLength(3);
+    });
+
+    it('renders and removes slots through generic fallback branch', () => {
+      const spy = jest.spyOn(layoutConfigModule, 'getLayoutConfig').mockReturnValueOnce({
+        id: 'custom' as any,
+        name: 'Custom',
+        description: 'Custom fallback layout',
+        slots: [
+          { id: 'custom-slot-1', gridArea: 'a', variant: 'small' as any, showImage: true },
+          { id: 'custom-slot-2', gridArea: 'b', variant: 'small' as any, showImage: false },
+        ],
+        gridTemplate: {
+          columns: '1fr 1fr',
+          rows: 'auto',
+          areas: '"a b"'
+        }
+      });
+
+      const slotStories: SlotStoryMap = {
+        'custom-slot-1': mockStories[0],
+      };
+
+      render(
+        <DndWrapper>
+          <LayoutRenderer
+            layoutType={'custom' as any}
+            slotStories={slotStories}
+            onRemoveStory={mockOnRemoveStory}
+          />
+        </DndWrapper>
+      );
+
+      expect(screen.getByText(mockStories[0].title)).toBeInTheDocument();
+      expect(screen.getByText('+')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTitle('Remove story'));
+      expect(mockOnRemoveStory).toHaveBeenCalledWith('custom-slot-1');
+
+      spy.mockRestore();
     });
   });
 });

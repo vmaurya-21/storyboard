@@ -1,61 +1,105 @@
-// Small presentational helpers shared by the board cards, mirroring the
-// reference app's source detection + read-time chrome.
-
+/** Where a story's post link points. */
 export type StorySource = 'internal' | 'linkedin' | 'external';
 
+/** Result of classifying a post link with {@link detectStorySource}. */
 export interface IStorySourceInfo {
+  /** The classification. */
   source: StorySource;
+  /** Hostname the classification was derived from, when the URL parsed. */
   domain?: string;
 }
 
-// Derive a story's "source" from its post link, matching the reference
-// detectStorySource(): LinkedIn / external / internal.
+/**
+ * Classifies a story's post link as internal, LinkedIn or external.
+ *
+ * The rules mirror the Reporter Daily reference:
+ *
+ * - any `*.linkedin.com` host is `linkedin`, reported with the canonical
+ *   domain `linkedin.com` rather than the subdomain;
+ * - `*.whitecase.com` is `internal`, unless the host starts with `external.`
+ *   or contains `external-`, which marks a partner-facing site;
+ * - anything else is `external`.
+ *
+ * A missing, blank or placeholder (`'#'`) link, or one that fails to parse,
+ * is treated as `internal` with no domain — the safe default, since those
+ * links never leave the tenant.
+ *
+ * @param url - Absolute post URL. Relative URLs do not parse and fall back to
+ * `internal`.
+ * @returns The classification and, when available, the hostname behind it.
+ *
+ * @example
+ * ```ts
+ * detectStorySource('https://www.linkedin.com/posts/x');
+ * // => { source: 'linkedin', domain: 'linkedin.com' }
+ *
+ * detectStorySource('https://external.whitecase.com/a');
+ * // => { source: 'external', domain: 'external.whitecase.com' }
+ * ```
+ */
 export const detectStorySource = (url?: string): IStorySourceInfo => {
-  if (!url || url === '#') {
+  if (!url || url === '#' || url.trim() === '') {
     return { source: 'internal' };
   }
   try {
     const hostname = new URL(url).hostname.toLowerCase();
 
-    if (hostname.indexOf('linkedin.com') !== -1) {
+    if (hostname === 'linkedin.com' || hostname.endsWith('.linkedin.com')) {
       return { source: 'linkedin', domain: 'linkedin.com' };
     }
-    if (hostname.indexOf('whitecase.com') !== -1) {
-      if (hostname.indexOf('external.') === 0 || hostname.indexOf('external-') !== -1) {
+
+    if (hostname === 'whitecase.com' || hostname.endsWith('.whitecase.com')) {
+      if (hostname.startsWith('external.') || hostname.indexOf('external-') !== -1) {
         return { source: 'external', domain: hostname };
       }
       return { source: 'internal', domain: hostname };
     }
-    if (hostname.indexOf('unsplash.com') !== -1) {
-      return { source: 'external', domain: 'unsplash.com' };
-    }
+
     return { source: 'external', domain: hostname };
   } catch {
     return { source: 'internal' };
   }
 };
 
-// The reference shows a constant "2 min read" estimate on every card.
+/**
+ * Fixed reading-time label shown on cards.
+ *
+ * The reference design displays a constant rather than estimating per story,
+ * because the list holds links rather than article bodies.
+ */
 export const READ_TIME_LABEL = '2 min read';
 
-// Format date into reference style (e.g., Nov 22nd, Sep 14th)
+/**
+ * Formats a publish date the way the cards display it: short month plus an
+ * ordinal day, e.g. `Mar 3rd`.
+ *
+ * @param dateVal - A `Date`, or any string `Date` can parse.
+ * @returns The formatted label. An empty string when `dateVal` is absent;
+ * the original string when it was given but could not be parsed, so a
+ * pre-formatted value from SharePoint passes through untouched rather than
+ * rendering as `Invalid Date`.
+ *
+ * @example
+ * ```ts
+ * formatPublishDate('2026-03-03'); // => 'Mar 3rd'
+ * formatPublishDate('sometime');   // => 'sometime'
+ * ```
+ */
 export const formatPublishDate = (dateVal?: string | Date): string => {
   if (!dateVal) return '';
-  
-  // Try to parse the string to a date. 
-  // If dateVal is already "Nov 22nd" or similar, new Date(dateVal) will return an invalid date.
+
   const parsed = new Date(dateVal);
   if (isNaN(parsed.getTime())) {
     return typeof dateVal === 'string' ? dateVal : '';
   }
-  
+
   const month = parsed.toLocaleDateString('en-US', { month: 'short' });
   const day = parsed.getDate();
-  
+
   let suffix = 'th';
   if (day === 1 || day === 21 || day === 31) suffix = 'st';
   else if (day === 2 || day === 22) suffix = 'nd';
   else if (day === 3 || day === 23) suffix = 'rd';
-  
+
   return `${month} ${day}${suffix}`;
 };

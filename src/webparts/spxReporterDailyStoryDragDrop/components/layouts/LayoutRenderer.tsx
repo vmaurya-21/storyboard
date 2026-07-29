@@ -1,52 +1,60 @@
 import * as React from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
-import { LayoutType, SlotStoryMap } from '../types';
+import { LayoutType, SlotStoryMap, CardLayout } from '../types';
 import { getLayoutConfig } from './layoutConfig';
 import CardSlot from '../cards/CardSlot';
 import StoryCarousel, { CarouselDisplayMode } from '../StoryCarousel';
 import styles from './LayoutRenderer.module.scss';
 
+/** Props for {@link LayoutRenderer}. */
 export interface ILayoutRendererProps {
+  /** Preset to render. */
   layoutType: LayoutType;
+  /** Current board state: which story sits in which slot. */
   slotStories: SlotStoryMap;
+  /** Called with a slot id when the editor clears that slot. */
   onRemoveStory: (slotId: string) => void;
-  slotLayoutPreferences?: { [key: string]: CarouselDisplayMode };
-  onSlotLayoutChange?: (slotId: string, mode: CarouselDisplayMode) => void;
-  featuredStoryId?: string;
+  /** Per-slot card layout overrides, keyed by slot id. */
+  slotLayoutPreferences?: { [key: string]: CardLayout };
+  /** Called when the editor picks a different card layout for a slot. */
+  onSlotLayoutChange?: (slotId: string, mode: CardLayout) => void;
 }
 
+/**
+ * Renders the board for the selected layout preset.
+ *
+ * Three cases, in order:
+ *
+ * 1. `connectHomepage` delegates to {@link StoryCarousel} — its five slots are
+ *    presented as a carousel, not a grid.
+ * 2. A preset with no slots renders a "not configured" placeholder.
+ * 3. Everything else renders a CSS grid of {@link CardSlot} elements, with
+ *    `reporterDaily` and `general` using hand-built column structures rather
+ *    than the preset's named grid areas.
+ */
 const LayoutRenderer: React.FC<ILayoutRendererProps> = ({
   layoutType,
   slotStories,
   onRemoveStory,
   slotLayoutPreferences = {},
-  onSlotLayoutChange,
-  featuredStoryId
+  onSlotLayoutChange
 }) => {
   const layoutConfig = getLayoutConfig(layoutType);
 
-  const isFeatured = (slotId: string): boolean => {
-    const story = slotStories[slotId];
-    return !!story && !!featuredStoryId && story.id === featuredStoryId;
-  };
-
-  // Connect Homepage — full-width carousel.
   if (layoutType === 'connectHomepage') {
     const slotIds = layoutConfig.slots.map(s => s.id);
     return (
       <StoryCarousel
         slotIds={slotIds}
         slotStories={slotStories}
-        slotLayoutPreferences={slotLayoutPreferences}
-        onSlotLayoutChange={onSlotLayoutChange}
+        slotLayoutPreferences={slotLayoutPreferences as { [key: string]: CarouselDisplayMode }}
+        onSlotLayoutChange={onSlotLayoutChange as any}
         onRemoveStory={onRemoveStory}
-        featuredStoryId={featuredStoryId}
         isAdminMode
       />
     );
   }
 
-  // Don't render if layout has no slots (like an unconfigured placeholder)
   if (layoutConfig.slots.length === 0) {
     return (
       <div className={styles.emptyLayout}>
@@ -66,11 +74,9 @@ const LayoutRenderer: React.FC<ILayoutRendererProps> = ({
                           layoutType === 'general' ? styles.general : 
                           layoutType === 'highlight' ? styles.highlight : '';
 
-  // Reporter Daily — three flex columns matching the reference board.
   if (layoutType === 'reporterDaily') {
     return (
       <div className={`${styles.layoutGrid} ${styles.reporterDaily}`}>
-        {/* Column 1: two-medium (full-image + thumbnail-text) */}
         <div className={styles.column}>
           <div className={styles.columnDragHandle}>
             <Icon iconName="GripperDotsVertical" className={styles.gripIcon} />
@@ -84,22 +90,17 @@ const LayoutRenderer: React.FC<ILayoutRendererProps> = ({
               variant="medium"
               cardLayout="full-image"
               showImage={true}
-              onRemove={() => onRemoveStory('slot-1')}
-              featured={isFeatured('slot-1')}
-            />
+              onRemove={() => onRemoveStory('slot-1')}            />
             <CardSlot
               slotId="slot-2"
               story={slotStories['slot-2'] || undefined}
               variant="medium"
               cardLayout="thumbnail-text"
               showImage={true}
-              onRemove={() => onRemoveStory('slot-2')}
-              featured={isFeatured('slot-2')}
-            />
+              onRemove={() => onRemoveStory('slot-2')}            />
           </div>
         </div>
 
-        {/* Column 2: small-tall (text-only + full-image) */}
         <div className={styles.column}>
           <div className={styles.columnDragHandle}>
             <Icon iconName="GripperDotsVertical" className={styles.gripIcon} />
@@ -113,22 +114,17 @@ const LayoutRenderer: React.FC<ILayoutRendererProps> = ({
               variant="small"
               cardLayout="text-only"
               showImage={false}
-              onRemove={() => onRemoveStory('slot-3')}
-              featured={isFeatured('slot-3')}
-            />
+              onRemove={() => onRemoveStory('slot-3')}            />
             <CardSlot
               slotId="slot-4"
               story={slotStories['slot-4'] || undefined}
               variant="tall"
               cardLayout="full-image"
               showImage={true}
-              onRemove={() => onRemoveStory('slot-4')}
-              featured={isFeatured('slot-4')}
-            />
+              onRemove={() => onRemoveStory('slot-4')}            />
           </div>
         </div>
 
-        {/* Column 3: full (fills the column height) */}
         <div className={styles.column}>
           <div className={styles.columnDragHandle}>
             <Icon iconName="GripperDotsVertical" className={styles.gripIcon} />
@@ -142,20 +138,16 @@ const LayoutRenderer: React.FC<ILayoutRendererProps> = ({
               variant="large"
               cardLayout="full-image"
               showImage={true}
-              onRemove={() => onRemoveStory('slot-5')}
-              featured={isFeatured('slot-5')}
-            />
+              onRemove={() => onRemoveStory('slot-5')}            />
           </div>
         </div>
       </div>
     );
   }
 
-  // General Layout - 3 columns of "Two Half Slots" each (total 6 slots)
   if (layoutType === 'general') {
     return (
       <div className={`${styles.layoutGrid} ${styles.general}`}>
-        {/* Column 1: Two Half Slots (gen-slot-1 and gen-slot-4) */}
         <div className={styles.column}>
           <div className={styles.columnDragHandle}>
             <Icon iconName="GripperDotsVertical" className={styles.gripIcon} />
@@ -169,22 +161,17 @@ const LayoutRenderer: React.FC<ILayoutRendererProps> = ({
               variant="medium"
               cardLayout={slotLayoutPreferences['gen-slot-1'] || 'full-image'}
               showImage={true}
-              onRemove={() => onRemoveStory('gen-slot-1')}
-              featured={isFeatured('gen-slot-1')}
-            />
+              onRemove={() => onRemoveStory('gen-slot-1')}            />
             <CardSlot
               slotId="gen-slot-4"
               story={slotStories['gen-slot-4'] || undefined}
               variant="medium"
               cardLayout={slotLayoutPreferences['gen-slot-4'] || 'full-image'}
               showImage={true}
-              onRemove={() => onRemoveStory('gen-slot-4')}
-              featured={isFeatured('gen-slot-4')}
-            />
+              onRemove={() => onRemoveStory('gen-slot-4')}            />
           </div>
         </div>
 
-        {/* Column 2: Two Half Slots (gen-slot-2 and gen-slot-5) */}
         <div className={styles.column}>
           <div className={styles.columnDragHandle}>
             <Icon iconName="GripperDotsVertical" className={styles.gripIcon} />
@@ -198,22 +185,17 @@ const LayoutRenderer: React.FC<ILayoutRendererProps> = ({
               variant="medium"
               cardLayout={slotLayoutPreferences['gen-slot-2'] || 'full-image'}
               showImage={true}
-              onRemove={() => onRemoveStory('gen-slot-2')}
-              featured={isFeatured('gen-slot-2')}
-            />
+              onRemove={() => onRemoveStory('gen-slot-2')}            />
             <CardSlot
               slotId="gen-slot-5"
               story={slotStories['gen-slot-5'] || undefined}
               variant="medium"
               cardLayout={slotLayoutPreferences['gen-slot-5'] || 'full-image'}
               showImage={true}
-              onRemove={() => onRemoveStory('gen-slot-5')}
-              featured={isFeatured('gen-slot-5')}
-            />
+              onRemove={() => onRemoveStory('gen-slot-5')}            />
           </div>
         </div>
 
-        {/* Column 3: Two Half Slots (gen-slot-3 and gen-slot-6) */}
         <div className={styles.column}>
           <div className={styles.columnDragHandle}>
             <Icon iconName="GripperDotsVertical" className={styles.gripIcon} />
@@ -227,29 +209,23 @@ const LayoutRenderer: React.FC<ILayoutRendererProps> = ({
               variant="medium"
               cardLayout={slotLayoutPreferences['gen-slot-3'] || 'full-image'}
               showImage={true}
-              onRemove={() => onRemoveStory('gen-slot-3')}
-              featured={isFeatured('gen-slot-3')}
-            />
+              onRemove={() => onRemoveStory('gen-slot-3')}            />
             <CardSlot
               slotId="gen-slot-6"
               story={slotStories['gen-slot-6'] || undefined}
               variant="medium"
               cardLayout={slotLayoutPreferences['gen-slot-6'] || 'full-image'}
               showImage={true}
-              onRemove={() => onRemoveStory('gen-slot-6')}
-              featured={isFeatured('gen-slot-6')}
-            />
+              onRemove={() => onRemoveStory('gen-slot-6')}            />
           </div>
         </div>
       </div>
     );
   }
 
-  // Highlight Layout - Column 1: Two Half Slots, Column 2: Two Half Slots, Column 3: Full Slot
   if (layoutType === 'highlight') {
     return (
       <div className={`${styles.layoutGrid} ${styles.highlight}`}>
-        {/* Column 1: Two Half Slots (slot-1 and slot-4) */}
         <div className={styles.column}>
           <div className={styles.columnDragHandle}>
             <Icon iconName="GripperDotsVertical" className={styles.gripIcon} />
@@ -263,22 +239,17 @@ const LayoutRenderer: React.FC<ILayoutRendererProps> = ({
               variant="medium"
               cardLayout={slotLayoutPreferences['slot-1'] || 'full-image'}
               showImage={true}
-              onRemove={() => onRemoveStory('slot-1')}
-              featured={isFeatured('slot-1')}
-            />
+              onRemove={() => onRemoveStory('slot-1')}            />
             <CardSlot
               slotId="slot-4"
               story={slotStories['slot-4'] || undefined}
               variant="medium"
               cardLayout={slotLayoutPreferences['slot-4'] || 'full-image'}
               showImage={true}
-              onRemove={() => onRemoveStory('slot-4')}
-              featured={isFeatured('slot-4')}
-            />
+              onRemove={() => onRemoveStory('slot-4')}            />
           </div>
         </div>
 
-        {/* Column 2: Two Half Slots (slot-2 and slot-5) */}
         <div className={styles.column}>
           <div className={styles.columnDragHandle}>
             <Icon iconName="GripperDotsVertical" className={styles.gripIcon} />
@@ -292,22 +263,17 @@ const LayoutRenderer: React.FC<ILayoutRendererProps> = ({
               variant="medium"
               cardLayout={slotLayoutPreferences['slot-2'] || 'full-image'}
               showImage={true}
-              onRemove={() => onRemoveStory('slot-2')}
-              featured={isFeatured('slot-2')}
-            />
+              onRemove={() => onRemoveStory('slot-2')}            />
             <CardSlot
               slotId="slot-5"
               story={slotStories['slot-5'] || undefined}
               variant="medium"
               cardLayout={slotLayoutPreferences['slot-5'] || 'full-image'}
               showImage={true}
-              onRemove={() => onRemoveStory('slot-5')}
-              featured={isFeatured('slot-5')}
-            />
+              onRemove={() => onRemoveStory('slot-5')}            />
           </div>
         </div>
 
-        {/* Column 3: Full Slot (slot-3) */}
         <div className={styles.column}>
           <div className={styles.columnDragHandle}>
             <Icon iconName="GripperDotsVertical" className={styles.gripIcon} />
@@ -321,9 +287,7 @@ const LayoutRenderer: React.FC<ILayoutRendererProps> = ({
               variant="large"
               cardLayout={slotLayoutPreferences['slot-3'] || 'full-image'}
               showImage={true}
-              onRemove={() => onRemoveStory('slot-3')}
-              featured={isFeatured('slot-3')}
-            />
+              onRemove={() => onRemoveStory('slot-3')}            />
           </div>
         </div>
       </div>
@@ -346,9 +310,7 @@ const LayoutRenderer: React.FC<ILayoutRendererProps> = ({
             story={slotStories[slot.id] || undefined}
             variant={slot.variant}
             showImage={slot.showImage !== false}
-            onRemove={() => onRemoveStory(slot.id)}
-            featured={isFeatured(slot.id)}
-          />
+            onRemove={() => onRemoveStory(slot.id)}          />
         </div>
       ))}
     </div>

@@ -113,24 +113,24 @@ describe('AddStoryModal Component', () => {
     });
   });
 
-  it('should use default description when empty', async () => {
+  it('should pass a blank description when empty', async () => {
     render(<AddStoryModal onClose={mockOnClose} onAdd={mockOnAdd} />);
-    
+
     const titleInput = screen.getByLabelText(/title/i);
     const imageInput = screen.getByLabelText(/image url/i);
     const linkInput = screen.getByLabelText(/link to post/i);
-    
+
     await userEvent.type(titleInput, 'Test Story');
     await userEvent.type(imageInput, 'https://example.com/image.jpg');
     await userEvent.type(linkInput, 'https://example.com/post');
-    
+
     const saveButton = screen.getByText('Save');
     fireEvent.click(saveButton);
-    
+
     await waitFor(() => {
       expect(mockOnAdd).toHaveBeenCalledWith(
         expect.objectContaining({
-          description: '(optional)'
+          description: ''
         })
       );
     });
@@ -203,13 +203,11 @@ describe('AddStoryModal Component', () => {
     const imageInput = screen.getByLabelText(/image url/i);
     const linkInput = screen.getByLabelText(/link to post/i);
     
-    // Fill in the form
     await userEvent.type(titleInput, 'Test Story');
     await userEvent.type(descInput, 'Test Description');
     await userEvent.type(imageInput, 'https://example.com/image.jpg');
     await userEvent.type(linkInput, 'https://example.com/post');
     
-    // Click cancel
     const cancelButton = screen.getByText('Cancel');
     fireEvent.click(cancelButton);
     
@@ -224,13 +222,11 @@ describe('AddStoryModal Component', () => {
     const imageInput = screen.getByLabelText(/image url/i);
     const linkInput = screen.getByLabelText(/link to post/i);
     
-    // Fill in the form
     await userEvent.type(titleInput, 'Test Story');
     await userEvent.type(descInput, 'Test Description');
     await userEvent.type(imageInput, 'https://example.com/image.jpg');
     await userEvent.type(linkInput, 'https://example.com/post');
     
-    // Click close button
     const closeButton = screen.getByTitle('Close');
     fireEvent.click(closeButton);
     

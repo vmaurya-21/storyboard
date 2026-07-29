@@ -3,23 +3,39 @@ import { useState, useRef, useEffect } from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
 import styles from './LayoutSelect.module.scss';
 
+/** One entry in the {@link LayoutSelect} dropdown. */
 export interface ILayoutOption {
+  /** Value reported to `onChange`; in practice a `LayoutType`. */
   value: string;
+  /** Text shown for the option. */
   label: string;
 }
 
+/** Props for {@link LayoutSelect}. */
 interface ILayoutSelectProps {
+  /** Currently selected option value. */
   value: string;
+  /** Options to offer, in display order. */
   options: ILayoutOption[];
+  /** Called with the new value when an option is chosen. */
   onChange: (value: string) => void;
+  /** Extra class for the root element. */
   className?: string;
+  /** Whether the control is disabled. */
   disabled?: boolean;
+  /** Accessible name for the trigger button. */
   ariaLabel?: string;
 }
 
-// A lightweight shadcn-style <Select> replacement: styled trigger with a
-// chevron plus a popover list whose selected item shows a check — matching
-// the reference "View" dropdown (which a native <select> can't fully style).
+/**
+ * Accessible dropdown for choosing the board layout.
+ *
+ * Hand-rolled rather than a native `<select>` so the popover can be styled to
+ * match the reference. It implements the listbox keyboard contract (arrows,
+ * Home/End, Enter/Space, Escape), moves focus to the active option while
+ * open, restores focus to the trigger on close, and closes on an outside
+ * pointer.
+ */
 const LayoutSelect: React.FC<ILayoutSelectProps> = ({
   value,
   options,
@@ -36,7 +52,6 @@ const LayoutSelect: React.FC<ILayoutSelectProps> = ({
   const selectedIndex = options.findIndex(o => o.value === value);
   const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined;
 
-  // Close on outside pointer (mouse + touch) and on Escape (returning focus).
   useEffect(() => {
     if (!open) return undefined;
     const onOutside = (e: Event): void => {
@@ -60,7 +75,6 @@ const LayoutSelect: React.FC<ILayoutSelectProps> = ({
     };
   }, [open]);
 
-  // Move focus into the list (selected item) when it opens.
   useEffect(() => {
     if (!open) return undefined;
     const idx = selectedIndex >= 0 ? selectedIndex : 0;
@@ -71,11 +85,25 @@ const LayoutSelect: React.FC<ILayoutSelectProps> = ({
     return () => window.clearTimeout(t);
   }, [open, selectedIndex]);
 
+  /**
+   * Focuses the option at a given index, if it is mounted.
+   *
+   * @param idx - Zero-based index into `options`.
+   */
   const focusItem = (idx: number): void => {
     const el = itemRefs.current[idx];
     if (el) el.focus();
   };
 
+  /**
+   * Handles roving-focus keys inside the open list.
+   *
+   * Arrow keys wrap around the ends; Home and End jump to the first and last
+   * option. Each handled key has its default suppressed so the page does not
+   * scroll behind the popover.
+   *
+   * @param e - The keyboard event from the list container.
+   */
   const onListKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     const count = options.length;
     if (count === 0) return;
@@ -97,6 +125,12 @@ const LayoutSelect: React.FC<ILayoutSelectProps> = ({
     }
   };
 
+  /**
+   * Commits a selection: reports it, closes the popover and returns focus to
+   * the trigger so keyboard users are not stranded.
+   *
+   * @param v - Value of the chosen option.
+   */
   const choose = (v: string): void => {
     onChange(v);
     setOpen(false);

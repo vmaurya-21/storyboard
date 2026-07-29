@@ -7,43 +7,90 @@ import { IWebPartContext } from "@microsoft/sp-webpart-base";
 import { IItemAddResult } from "@pnp/sp/items";
 let sp: SPFI | undefined;
 
+/**
+ * A story as this service exchanges it with callers.
+ *
+ * Field names are normalised to camel case, unlike the raw list item. Both
+ * `id` and `ID` appear because SharePoint returns the latter while writes
+ * accept the former.
+ */
 export interface IStoryItem {
+  /** List item id, lower case as used on writes. */
   id?: number;
+  /** List item id as SharePoint returns it on reads. */
   ID?: number;
+  /** Headline. Maps to the list's `Title` column. */
   title: string;
+  /** Optional summary body. */
   description?: string;
+  /** Absolute image URL, flattened from the list's hyperlink column. */
   imageUrl: string;
+  /** Absolute post URL, flattened from the list's hyperlink column. */
   linkToPost?: string;
+  /** Display date, derived from the item's `Modified` timestamp. */
   date?: string;
+  /** Raw `Created` timestamp, used for sorting. */
   created?: string;
+  /** Origin of the post, from the list's `Source` column. */
+  source?: string;
 }
 
+/**
+ * Raw shape of an Available Stories list item.
+ *
+ * Hyperlink columns arrive either as `{ Url }` objects or as bare strings
+ * depending on how the row was written, which is why both are modelled.
+ */
 interface ISharePointStoryItem {
+  /** List item id. */
   ID: number;
+  /** Headline. */
   Title: string;
+  /** Optional summary body. */
   description?: string;
+  /** Image hyperlink, as an object or a plain URL string. */
   imageUrl?: { Url: string } | string;
+  /** Post hyperlink, as an object or a plain URL string. */
   linkToPost?: { Url: string } | string;
-  Modified?: string; // SharePoint's built-in last-modified timestamp (ISO)
-  Created?: string; // SharePoint's built-in creation timestamp (ISO)
-  IsActive?: boolean | string; // Yes/No column — false/"No" means soft-deleted
+  /** Last-modified timestamp, surfaced as the display date. */
+  Modified?: string;
+  /** Creation timestamp. */
+  Created?: string;
+  /** Origin of the post. */
+  Source?: string;
 }
 
+/** Title of the SharePoint list backing the available stories. */
 const LIST_NAME = "Available Stories";
 
 /**
- * Whether a story row should be visible. A story is active unless IsActive is
- * explicitly No/false. Missing values (e.g. rows created before the column was
- * added) are treated as active so they don't silently disappear.
+ * Auto-detect a source category string ('internal' | 'external' | 'linkedin') from a post URL.
  */
-const isActiveStory = (value: boolean | string | undefined): boolean => {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "string") {
-    const v = value.trim().toLowerCase();
-    return v === "yes" || v === "true" || v === "1";
+export const deriveSourceFromUrl = (url?: string): 'internal' | 'external' | 'linkedin' => {
+  if (!url || url === "#" || url.trim() === "") {
+    return "internal";
   }
-  return true;
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+
+    if (hostname === "linkedin.com" || hostname.endsWith(".linkedin.com")) {
+      return "linkedin";
+    }
+
+    if (hostname === "whitecase.com" || hostname.endsWith(".whitecase.com")) {
+      if (hostname.startsWith("external.") || hostname.indexOf("external-") !== -1) {
+        return "external";
+      }
+      return "internal";
+    }
+
+    return "external";
+  } catch {
+    return "internal";
+  }
 };
+
+
 
 /**
  * Get the current SPFI instance
@@ -68,7 +115,6 @@ const getSpOrThrow = (): SPFI => {
  * Initialize SharePoint PnP
  */
 export const initializeSharePoint = (spWeb: IWebPartContext): SPFI => {
-  // Always reinitialize to ensure fresh context
   sp = spfi().using(SPFx(spWeb));
   return sp;
 };
@@ -83,12 +129,10 @@ export const createStory = async (story: IStoryItem): Promise<IItemAddResult> =>
     const payload: any = {
       Title: story.title,
       description: story.description || "",
-      // New stories are active regardless of the column's default value.
-      // IsActive is a Choice column, so it takes the string "Yes"/"No".
-      IsActive: "Yes",
     };
 
-    // Only include URL fields if they have
+    payload.Source = deriveSourceFromUrl(story.linkToPost);
+
     if (story.imageUrl) {
       payload.imageUrl = { Url: story.imageUrl };
     }
@@ -120,24 +164,27 @@ export const getStories = async (): Promise<IStoryItem[]> => {
         "linkToPost",
         "Modified",
         "Created",
-        "IsActive"
+        "Source"
       )();
     return items
-      .filter((item: ISharePointStoryItem) => isActiveStory(item.IsActive))
       .map((item: ISharePointStoryItem) => {
-      // Extract URL from URL field objects if needed
       const imageUrl = typeof item.imageUrl === 'object' ? item.imageUrl?.Url || "" : (item.imageUrl || "");
       const linkToPost = typeof item.linkToPost === 'object' ? item.linkToPost?.Url || "" : (item.linkToPost || "");
       
+      const rawSource = typeof item.Source === 'string' ? item.Source.trim().toLowerCase() : '';
+      const sourceCategory = (rawSource === 'linkedin' || rawSource === 'external' || rawSource === 'internal')
+        ? rawSource
+        : deriveSourceFromUrl(linkToPost);
+
       return {
         id: item.ID,
         title: item.Title,
         description: item.description || "",
         imageUrl: imageUrl,
         linkToPost: linkToPost,
-        // Show the story's actual last-modified date, not the current date.
         date: item.Modified || "",
         created: item.Created || "",
+        source: sourceCategory,
       };
     });
   } catch (error) {
@@ -157,15 +204,16 @@ export const updateStory = async (id: number, story: IStoryItem): Promise<void> 
       Title: story.title,
       description: story.description || "",
     };
-    
-    // Only include URL fields if they have values
+
+    payload.Source = deriveSourceFromUrl(story.linkToPost);
+
     if (story.imageUrl) {
       payload.imageUrl = { Url: story.imageUrl };
     }
     if (story.linkToPost) {
       payload.linkToPost = { Url: story.linkToPost };
     }
-    
+
     await client.web.lists.getByTitle(LIST_NAME).items.getById(id).update(payload);
   } catch (error) {
     console.error("Error updating story:", error);
@@ -179,12 +227,9 @@ export const updateStory = async (id: number, story: IStoryItem): Promise<void> 
 export const deleteStory = async (id: number): Promise<void> => {
   try {
     const client = getSpOrThrow();
-    // Soft delete: mark the story inactive instead of removing it from the list.
-    // getStories filters these out, so it disappears from the UI but is retained.
-    // IsActive is a Choice column, so it takes the string "No".
-    await client.web.lists.getByTitle(LIST_NAME).items.getById(id).update({ IsActive: "No" });
+    await client.web.lists.getByTitle(LIST_NAME).items.getById(id).delete();
   } catch (error) {
-    console.error("Error deactivating story:", error);
+    console.error("Error deleting story:", error);
     throw error;
   }
 };
@@ -196,31 +241,26 @@ export const ensureListExists = async (): Promise<void> => {
   try {
     const client = getSpOrThrow();
 
-    // Check if list exists
     const lists = await client.web.lists();
     const storyListExists = lists.some((list: ISharePointList) => list.Title === LIST_NAME);
 
     if (storyListExists) {
-      return; // List already exists
+      return;
     }
 
-    // Create new list
     await client.web.lists.add(LIST_NAME);
 
-    // Add columns to the list
     const list = client.web.lists.getByTitle(LIST_NAME);
     
-    // Add Description field
     await list.fields.addText("Description");
 
-    // Add ImageUrl field
     await list.fields.addText("ImageUrl");
 
-    // Add LinkToPost field
     await list.fields.addText("LinkToPost");
 
-    // Add StoryDate field
     await list.fields.addDateTime("StoryDate");
+
+    await list.fields.addText("Source");
   } catch (error) {
     console.error("Error ensuring list exists:", error);
   }

@@ -7,25 +7,36 @@ import { IStory, CardVariant, CardLayout } from '../types';
 import StoryCard from './StoryCard';
 import styles from './CardSlot.module.scss';
 
+/** Props for {@link CardSlot}. */
 export interface ICardSlotProps {
+  /** Slot id from the layout preset; also the dnd-kit droppable id. */
   slotId: string;
+  /** Story occupying the slot, or `undefined` to render the empty state. */
   story: IStory | undefined;
+  /** Size family, applied as a modifier class on the slot. */
   variant: CardVariant;
+  /** Content layout for the card. Falls back to the card's own default. */
   cardLayout?: CardLayout;
+  /** Whether the card may render its image. Defaults to `true`. */
   showImage?: boolean;
+  /** Invoked when the editor clears the slot. Omit to hide the remove control. */
   onRemove?: () => void;
-  featured?: boolean;
 }
 
-// Separate component for draggable story cards in slots
+/**
+ * A placed story wrapped in a dnd-kit sortable handle.
+ *
+ * The whole card is the drag handle, so listeners are spread onto the wrapper
+ * rather than a grip element. Only the translation is applied — scale and
+ * rotation would distort the card against the fixed slot geometry.
+ */
 const DraggableStoryCard: React.FC<{
   story: IStory;
   variant: CardVariant;
   cardLayout?: CardLayout;
   showImage: boolean;
   onRemove?: () => void;
-  featured?: boolean;
-}> = ({ story, variant, cardLayout, showImage, onRemove, featured }) => {
+}> = ({ story, variant, cardLayout, showImage, onRemove }) => {
   const {
     attributes,
     listeners,
@@ -53,20 +64,25 @@ const DraggableStoryCard: React.FC<{
         showImage={showImage}
         onRemove={onRemove}
         isDragging={isDragging}
-        featured={featured}
       />
     </div>
   );
 };
 
+/**
+ * One position on the board: a drop target that holds at most one story.
+ *
+ * Empty slots show a plus affordance; filled slots render a
+ * `DraggableStoryCard` so the story can be moved to another slot. The
+ * slot highlights while a dragged story hovers over it.
+ */
 const CardSlot: React.FC<ICardSlotProps> = ({
   slotId,
   story,
   variant,
   cardLayout,
   showImage = true,
-  onRemove,
-  featured
+  onRemove
 }) => {
   const { setNodeRef, isOver } = useDroppable({
     id: slotId,
@@ -88,7 +104,6 @@ const CardSlot: React.FC<ICardSlotProps> = ({
           cardLayout={cardLayout}
           showImage={showImage}
           onRemove={onRemove}
-          featured={featured}
         />
       )}
     </div>

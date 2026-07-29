@@ -17,25 +17,34 @@ import AddStoryModal from './AddStoryModal';
 import EditStoryModal from './EditStoryModal';
 import DeleteGroupModal from './DeleteGroupModal';
 import DateTimePicker from './DateTimePicker';
-import { IStory, LayoutType, SlotStoryMap, ScheduledStoryGroup } from './types';
-import { getStories, createStory, updateStory, deleteStory, initializeSharePoint, IStoryItem } from '../services/sharePointService';
+import { IStory, LayoutType, SlotStoryMap, ScheduledStoryGroup, CardLayout } from './types';
+import { getStories, createStory, updateStory, deleteStory, initializeSharePoint, IStoryItem } from '../services/availableStoriesService';
+import { LinkedinIcon, ExternalLinkIcon, EditIcon } from './icons';
+import BoardSkeleton from './BoardSkeleton';
 import {
   createScheduledGroup,
   getScheduledGroups,
   deleteScheduledGroupByGroupId,
   rescheduleGroup,
+  fromDateKey,
 } from '../services/scheduleStoriesService';
-import { publishBoard } from '../services/publishStoriesService';
+import { publishBoard, getLiveBoard } from '../services/publishStoriesService';
 import { IWebPartContext } from '@microsoft/sp-webpart-base';
 import LayoutRenderer from './layouts/LayoutRenderer';
 import { AVAILABLE_LAYOUTS, getLayoutConfig } from './layouts/layoutConfig';
-import LayoutSelect from './LayoutSelect';
 import { detectStorySource, formatPublishDate } from './cards/storyHelpers';
 import { ToastContainer, IToast } from './Toast';
 
-// Reference cap: up to 10 scheduled groups (each holds max 5 stories — one per slot).
+/** Most scheduled groups that may exist at once, matching the reference cap. */
 const MAX_SCHEDULED_GROUPS = 10;
 
+/**
+ * Converts a 24-hour `HH:mm` string to a padded 12-hour label.
+ *
+ * @param time - Time of day as `HH:mm`.
+ * @returns The 12-hour label, e.g. `13:05` becomes `01:05 PM`. Unparseable
+ * parts fall back to zero.
+ */
 const formatTime12 = (time: string): string => {
   const parts = time.split(':');
   const h = parseInt(parts[0], 10) || 0;
@@ -46,7 +55,17 @@ const formatTime12 = (time: string): string => {
   return `${pad(h12)}:${pad(m)} ${suffix}`;
 };
 
-// Map raw SharePoint story items into the UI's IStory shape.
+/**
+ * Maps raw SharePoint list items to the view model the UI consumes.
+ *
+ * Ids are namespaced as `story-{id}`, falling back to the array index when an
+ * item has none, so React keys and dnd-kit ids stay unique. Missing optional
+ * fields are filled with safe defaults — notably a `'#'` link, which
+ * {@link detectStorySource} then classifies as internal.
+ *
+ * @param stories - Items as returned by the Available Stories list.
+ * @returns The stories in view-model form, in the order supplied.
+ */
 const formatStories = (stories: IStoryItem[]): IStory[] =>
   stories.map((story, index) => ({
     id: `story-${story.id || index}`,
@@ -56,20 +75,125 @@ const formatStories = (stories: IStoryItem[]): IStory[] =>
     linkToPost: story.linkToPost || '#',
     date: story.date || new Date().toLocaleDateString(),
     created: story.created,
+    source: story.source || '',
   }));
 
+/** Props for an available-story list item row. */
+interface AvailableStoryItemProps {
+  /** Story to render. */
+  story: IStory;
+  /** Called with the story id when edit is pressed. */
+  onEdit: (storyId: string) => void;
+}
+
+/**
+ * One row in the Available Stories list.
+ *
+ * Kept at module scope so React preserves row identity across parent renders,
+ * which avoids repeatedly tearing down and re-registering each dnd-kit item.
+ */
+const AvailableStoryItem: React.FC<AvailableStoryItemProps> = ({ story, onEdit }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: story.id,
+    data: {
+      sortable: {
+        containerId: 'available-stories',
+      },
+    },
+  });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+  };
+
+  const { source, domain } = detectStorySource(story.linkToPost);
+  const rawSource = (story.source || source || '').toLowerCase();
+  const isLinkedin = rawSource === 'linkedin';
+  const isExternal = rawSource === 'external';
+
+  const displayDomain = domain ? domain.replace(/^www\./, '') : '';
+  const badgeLabel = isLinkedin ? 'LinkedIn' : (displayDomain || 'External');
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      className={`${styles.storyCard} ${isDragging ? styles.dragging : ''}`}
+    >
+      <div className={styles.storyDragArea} {...listeners}>
+        <img src={story.imageUrl} alt={story.title} className={styles.storyImage} />
+        <div className={styles.storyContent}>
+          <div className={styles.storyTitleRow}>
+            <h4>{story.title}</h4>
+          </div>
+          <div className={styles.storyMeta}>
+            <span className={styles.storyDate}>{formatPublishDate(story.date)}</span>
+            {(isLinkedin || isExternal) && (
+              <span
+                className={`${styles.rowBadge} ${isLinkedin ? styles.rowBadgeLinkedin : styles.rowBadgeExternal}`}
+              >
+                {isLinkedin ? <LinkedinIcon /> : <ExternalLinkIcon />}
+                {badgeLabel}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className={styles.storyActions}>
+        <button
+          type="button"
+          className={styles.actionBtn}
+          onClick={() => onEdit(story.id)}
+          title="Edit story"
+          aria-label="Edit story"
+        >
+          <EditIcon />
+        </button>
+      </div>
+    </div>
+  );
+};
 
 
 
+
+/** Props for {@link StoryDragDrop}. */
 interface StoryDragDropProps {
+  /**
+   * SharePoint context used to authenticate list calls. When absent the board
+   * renders an error instead of loading, which is how tests exercise the
+   * failure path.
+   */
   context?: IWebPartContext;
 }
 
+/**
+ * The storyboard editor: the component that owns all board state.
+ *
+ * Responsibilities:
+ *
+ * - loads stories, the live board and scheduled groups from SharePoint;
+ * - hosts the drag-and-drop context that moves stories between the Available
+ *   Stories list and the board's slots;
+ * - publishes the board live, and schedules arrangements for future dates;
+ * - runs two modal editing modes — scheduling and group editing — each of
+ *   which parks the current board and restores it on exit;
+ * - owns the toast queue every action reports through.
+ */
 const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
   const [availableStories, setAvailableStories] = useState<IStory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedLayout, setSelectedLayout] = useState<LayoutType>('reporterDaily');
+  const [selectedLayout, setSelectedLayout] = useState<LayoutType>('connectHomepage');
   const [slotStories, setSlotStories] = useState<SlotStoryMap>({});
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -79,8 +203,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
   const [selectedScheduleDate, setSelectedScheduleDate] = useState<string>('');
   const [selectedScheduleTime, setSelectedScheduleTime] = useState<string>('09:00');
   const [showCalendarOverlay, setShowCalendarOverlay] = useState(false);
-  const [slotLayoutPreferences, setSlotLayoutPreferences] = useState<{ [key: string]: 'full-image' | 'thumbnail-text' }>({});
-  const [featuredStoryId, setFeaturedStoryId] = useState<string | null>(null);
+  const [slotLayoutPreferences, setSlotLayoutPreferences] = useState<Record<string, CardLayout>>({});
   const [isGroupEditingMode, setIsGroupEditingMode] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [originalBoardState, setOriginalBoardState] = useState<SlotStoryMap>({});
@@ -91,19 +214,47 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
   const [groupToDelete, setGroupToDelete] = useState<ScheduledStoryGroup | null>(null);
 
 
-  const showToast = (title: string, type: 'success' | 'error' | 'info' = 'success', description?: string): void => {
+  /**
+   * Queues a notification.
+   *
+   * @param title - Bold headline.
+   * @param type - Severity. Defaults to `success`.
+   * @param description - Optional supporting line.
+   * @param duration - Auto-dismiss delay in ms. Defaults to 3000, matching the
+   * reference; pass 4000 for publish and schedule confirmations.
+   */
+  const showToast = (
+    title: string,
+    type: 'success' | 'error' | 'info' = 'success',
+    description?: string,
+    duration = 3000
+  ): void => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    setToasts(prev => [...prev, { id, type, title, description }]);
+    setToasts(prev => [...prev, { id, type, title, description, duration }]);
   };
 
+  /**
+   * Removes a notification from the queue.
+   *
+   * @param id - Id of the toast to drop.
+   */
   const handleCloseToast = (id: string): void => {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
-  // Load stories from SharePoint on component mount
+  // Load stories and scheduled groups once the SharePoint context is known.
+  // The `isMounted` guard keeps a late response from setting state after
+  // unmount, which React would warn about.
   useEffect(() => {
-    let isMounted = true; // Track if component is still mounted
+    let isMounted = true;
 
+    /**
+     * Fetches everything the board needs for its first render.
+     *
+     * Story and scheduled-group loads are isolated from each other: a failure
+     * loading groups is logged but leaves the stories usable. Either way the
+     * loading flag clears, so the skeleton is always replaced.
+     */
     const loadStories = async (): Promise<void> => {
       try {
         if (!context) {
@@ -122,7 +273,6 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
           const stories = await getStories();
           const formattedStories = formatStories(stories);
           
-          // Only update state if component is still mounted
           if (isMounted) {
             setAvailableStories(formattedStories);
             setError(null);
@@ -135,8 +285,6 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
           }
         }
 
-        // Load persisted scheduled groups from the "Schedule Stories" list.
-        // A failure here shouldn't block the stories UI, so it's logged only.
         try {
           const groups = await getScheduledGroups();
           if (isMounted) {
@@ -164,33 +312,43 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       }
     });
 
-    // Cleanup function to prevent state updates after unmount
     return () => {
       isMounted = false;
     };
   }, [context]);
 
-  // Configure sensors for dnd-kit. Mouse and touch are handled by separate
-  // sensors so each can have the right activation gesture:
-  //  - Mouse: start dragging after 8px of movement.
-  //  - Touch: press-and-hold (200ms) before dragging, so a quick swipe still
-  //    scrolls the Available Stories list instead of being swallowed as a drag.
-  //    Without a dedicated TouchSensor the browser claims the touch as a scroll
-  //    and the drag never starts on mobile / touch emulation.
   const sensors = useSensors(
     useSensor(MouseSensor, {
       activationConstraint: {
-        distance: 8, // Require 8px movement before drag starts
+        distance: 8,
       },
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 200, // Hold for 200ms to begin a drag
-        tolerance: 8, // Allow 8px of finger jitter during the hold
+        delay: 200,
+        tolerance: 8,
       },
     })
   );
 
+  /**
+   * Resolves a completed drag into a board update.
+   *
+   * Four outcomes, by where the drag started and ended:
+   *
+   * - Available list to a slot: the story moves in, and any story it displaces
+   *   returns to the available list.
+   * - Slot to the available list: the slot is emptied and the story returns.
+   * - Slot to slot: the two slots swap, or the story moves if the target is
+   *   empty.
+   * - Anything unrecognised — no drop target, an unknown story, or a drop back
+   *   onto the available list from the available list — is ignored.
+   *
+   * Drops are accepted both on a slot itself and on the card occupying it,
+   * since dnd-kit reports whichever is under the pointer.
+   *
+   * @param event - The dnd-kit drag-end event.
+   */
   const handleDragEnd = (event: DragEndEvent): void => {
     const { active, over } = event;
     if (!over) return;
@@ -200,11 +358,14 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     const fromAvailable =
       active.data.current?.sortable?.containerId === 'available-stories';
 
-    // Valid slot ids for the current layout.
     const slotIds = getLayoutConfig(selectedLayout).slots.map(s => s.id);
 
-    // Resolve a drop target (which may be a slot droppable OR a card sitting
-    // in a slot) to the owning slot id. Returns undefined if it's neither.
+    /**
+     * Resolves a drop target id to a slot id.
+     *
+     * @param id - Id reported by dnd-kit: either a slot, or a story sitting in one.
+     * @returns The slot id, or `undefined` when the target is neither.
+     */
     const resolveDestSlot = (id: string): string | undefined => {
       if (slotIds.indexOf(id) !== -1) return id;
       return Object.keys(slotStories).find(
@@ -212,20 +373,18 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       );
     };
 
-    // --- Dragging a card FROM the Available list ---------------------
     if (fromAvailable) {
       const story = availableStories.find(s => s.id === activeStoryId);
       if (!story) return;
-      if (overId === 'available-stories') return; // dropped back on the list
+      if (overId === 'available-stories') return;
 
       const destSlot = resolveDestSlot(overId);
-      if (!destSlot) return; // not a real slot (e.g. reordering the list)
+      if (!destSlot) return;
 
       const occupant = slotStories[destSlot];
       setSlotStories(prev => ({ ...prev, [destSlot]: story }));
       setAvailableStories(prev => {
         let next = prev.filter(s => s.id !== story.id);
-        // Return whatever was already in that slot to the list.
         if (occupant && !next.some(s => s.id === occupant.id)) {
           next = [...next, occupant];
         }
@@ -234,14 +393,12 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       return;
     }
 
-    // --- Dragging a card that is already in a slot ------------------
     const sourceSlot = Object.keys(slotStories).find(
       key => slotStories[key]?.id === activeStoryId
     );
     if (!sourceSlot) return;
     const sourceStory = slotStories[sourceSlot];
 
-    // Slot -> back to the Available list
     if (overId === 'available-stories') {
       setSlotStories(prev => {
         const next = { ...prev };
@@ -256,7 +413,6 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       return;
     }
 
-    // Slot -> another slot (move into empty, or swap with occupant)
     const destSlot = resolveDestSlot(overId);
     if (!destSlot || destSlot === sourceSlot) return;
 
@@ -274,27 +430,36 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     });
   };
 
+  /**
+   * Creates a story in SharePoint and refreshes the available list.
+   *
+   * The list is re-read rather than patched locally so the new row carries its
+   * server-assigned id and created date. The confirmation names the detected
+   * source and domain, matching the reference.
+   *
+   * @param story - Field values from the add dialog.
+   */
   const handleAddStory = (story: Omit<IStory, 'id' | 'date'>): void => {
     createStory({
       title: story.title,
       description: story.description,
       imageUrl: story.imageUrl,
-      linkToPost: story.linkToPost
+      linkToPost: story.linkToPost,
+      source: story.source
     }).then(() => {
       return getStories();
     }).then((stories) => {
-      const formattedStories: IStory[] = stories.map((s, index) => ({
-        id: `story-${s.id || index}`,
-        title: s.title,
-        description: s.description || '',
-        imageUrl: s.imageUrl,
-        linkToPost: s.linkToPost || '#',
-        date: s.date || new Date().toLocaleDateString(),
-        created: s.created
-      }));
+      const formattedStories = formatStories(stories);
       setAvailableStories(formattedStories);
       setIsModalOpen(false);
-      showToast('Story Added Successfully!', 'success');
+
+      const { source, domain } = detectStorySource(story.linkToPost);
+      const sourceLabel = source === 'linkedin' ? 'LinkedIn' : source === 'external' ? 'External' : 'Internal';
+      showToast(
+        'Story Added Successfully!',
+        'success',
+        `New ${sourceLabel} story added${domain ? ` from ${domain}` : ''}.`
+      );
     }).catch((err) => {
       console.error('Failed to save or reload stories:', err);
       setIsModalOpen(false);
@@ -302,6 +467,11 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     });
   };
 
+  /**
+   * Opens the edit dialog for a story.
+   *
+   * @param storyId - Id of the story to edit. Unknown ids are ignored.
+   */
   const handleEditStory = (storyId: string): void => {
     const story = availableStories.find(s => s.id === storyId);
     if (story) {
@@ -309,8 +479,16 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     }
   };
 
+  /**
+   * Saves edits to a story and reflects them everywhere it appears.
+   *
+   * After the write the list is re-read, and any copy of the story already
+   * placed on the board is swapped for the refreshed one so the two never
+   * drift apart.
+   *
+   * @param updatedStory - The story with edits applied.
+   */
   const handleUpdateStory = (updatedStory: IStory): void => {
-    // Extract ID from story.id (format: "story-{id}")
     const storyIdMatch = updatedStory.id.match(/\d+/);
     const numericId = storyIdMatch ? parseInt(storyIdMatch[0], 10) : null;
 
@@ -320,20 +498,18 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       return;
     }
 
-    // Call API to update story
     updateStory(numericId, {
       title: updatedStory.title,
       description: updatedStory.description,
       imageUrl: updatedStory.imageUrl,
-      linkToPost: updatedStory.linkToPost
+      linkToPost: updatedStory.linkToPost,
+      source: updatedStory.source
     }).then(() => {
-      // Refresh stories from API
       return getStories();
     }).then((stories) => {
       const formattedStories = formatStories(stories);
       setAvailableStories(formattedStories);
       
-      // Update in slot stories
       const newSlotStories = { ...slotStories };
       Object.keys(newSlotStories).forEach(key => {
         const updatedSlotStory = formattedStories.find(s => s.id === newSlotStories[key]?.id);
@@ -343,15 +519,26 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       });
       setSlotStories(newSlotStories);
       setEditingStory(null);
-      showToast('Story Updated Successfully!', 'success');
+
+      const { source, domain } = detectStorySource(updatedStory.linkToPost);
+      const sourceLabel = source === 'linkedin' ? 'LinkedIn' : source === 'external' ? 'External' : 'Internal';
+      showToast(
+        'Story Updated Successfully!',
+        'success',
+        `Story updated with ${sourceLabel} source${domain ? ` (${domain})` : ''}.`
+      );
     }).catch((err) => {
       console.error('Failed to update story:', err);
       showToast('Failed to update story', 'error', err.message || 'Unknown error');
     });
   };
 
+  /**
+   * Deletes a story and removes it from the board if it was placed.
+   *
+   * @param storyId - Id of the story to delete, in `story-{listItemId}` form.
+   */
   const handleDeleteStory = (storyId: string): void => {
-    // Extract ID from story.id (format: "story-{id}")
     const storyIdMatch = storyId.match(/\d+/);
     const numericId = storyIdMatch ? parseInt(storyIdMatch[0], 10) : null;
 
@@ -361,14 +548,11 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       return;
     }
 
-    // Call API to delete story
     deleteStory(numericId).then(() => {
-      // Refresh stories from API
       return getStories();
     }).then((stories) => {
       setAvailableStories(formatStories(stories));
       
-      // Remove from slot stories if it's there
       const newSlotStories = { ...slotStories };
       Object.keys(newSlotStories).forEach(key => {
         if (newSlotStories[key]?.id === storyId) {
@@ -376,8 +560,6 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
         }
       });
       setSlotStories(newSlotStories);
-      // Clear featured state if the deleted story was featured.
-      setFeaturedStoryId(prev => (prev === storyId ? null : prev));
       setEditingStory(null);
       showToast('Story deleted successfully!', 'success');
     }).catch((err) => {
@@ -386,67 +568,138 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     });
   };
 
+  /**
+   * Clears one slot, returning its story to the available list.
+   *
+   * @param slotId - Slot to empty. Empty slots are ignored.
+   */
   const handleRemoveFromSlot = (slotId: string): void => {
     const story = slotStories[slotId];
     if (story) {
-      // Add back to available stories
       setAvailableStories([...availableStories, story]);
       
-      // Remove from slot
       const newSlotStories = { ...slotStories };
       delete newSlotStories[slotId];
       setSlotStories(newSlotStories);
     }
   };
 
+  /**
+   * Empties every slot, returning all placed stories to the available list.
+   *
+   * Deliberately silent — the reference's Clear Board raises no toast, and
+   * Reset Board reports its own outcome.
+   */
   const handleClearBoard = (): void => {
-    // Move all stories from slots back to available
     const storiesInSlots = Object.keys(slotStories)
       .map(key => slotStories[key])
       .filter((s): s is IStory => s !== null);
     setAvailableStories([...availableStories, ...storiesInSlots]);
     setSlotStories({});
-    showToast('Board Reset', 'info', 'All stories returned to available list.');
+    showToast('Board Cleared', 'info', 'All stories moved to available stories.');
   };
 
+  /**
+   * Restores the board to the currently published state.
+   *
+   * The live snapshot supplies the slots, the per-slot layouts and the layout
+   * preset. The available list is rebuilt from every story currently known,
+   * minus those the snapshot places, so a restored story never appears both on
+   * the board and in the list. With nothing published the board is cleared
+   * instead.
+   */
+  const handleResetBoard = (): void => {
+    getLiveBoard()
+      .then((published) => {
+        if (!published) {
+          handleClearBoard();
+          return;
+        }
+
+        if (published.layoutType !== 'connectHomepage') {
+          showToast('Layout Type Does Not Exist', 'error', `Published layout type "${published.layoutType}" is not supported.`);
+          return;
+        }
+
+        const restoredSlots: SlotStoryMap = { ...published.slotStories };
+        const usedIds = new Set(
+          Object.keys(restoredSlots)
+            .map(k => restoredSlots[k])
+            .filter((s): s is IStory => !!s)
+            .map(s => s.id)
+        );
+
+        const universe: IStory[] = [
+          ...availableStories,
+          ...Object.keys(slotStories)
+            .map(k => slotStories[k])
+            .filter((s): s is IStory => !!s),
+        ];
+        const seen = new Set<string>();
+        const nextAvailable = universe.filter(s => {
+          if (usedIds.has(s.id) || seen.has(s.id)) return false;
+          seen.add(s.id);
+          return true;
+        });
+
+        setSlotStories(restoredSlots);
+        setAvailableStories(nextAvailable);
+        if (published.slotLayoutPreferences) {
+          setSlotLayoutPreferences({ ...published.slotLayoutPreferences });
+        }
+        setSelectedLayout(published.layoutType);
+
+        const restoredCount = Object.keys(restoredSlots)
+          .map(k => restoredSlots[k])
+          .filter((s): s is IStory => !!s).length;
+        showToast(
+          'Board Reset to Last Published State',
+          'success',
+          `Restored ${restoredCount} stories to their last published positions.`
+        );
+      })
+      .catch((err) => {
+        console.error('Reset Board failed:', err);
+        showToast('Reset failed', 'error', 'Could not restore the published board.');
+      });
+  };
+
+  /**
+   * Switches the board to another layout preset.
+   *
+   * Placed stories keep their slots; slots the new preset does not define stop
+   * rendering but are not discarded.
+   *
+   * @param value - Id of the preset to switch to.
+   */
   const handleLayoutChange = (value: string): void => {
     setSelectedLayout(value as LayoutType);
-    showToast('Layout Changed', 'info', `Switched layout to ${getLayoutConfig(value as LayoutType).name}`);
-    // Optionally clear the board when switching layouts
-    // handleClearBoard();
+    showToast('Layout Changed', 'info', `Switched to ${getLayoutConfig(value as LayoutType).name}. Your stories remain in place.`);
   };
 
-  const layoutOptions = AVAILABLE_LAYOUTS.map(layoutType => ({
-    value: layoutType,
-    label: getLayoutConfig(layoutType).name
-  }));
 
+  /**
+   * Overrides how one slot renders its card.
+   *
+   * @param slotId - Slot to change.
+   * @param mode - Card layout to apply.
+   */
   const handleSlotLayoutChange = (
     slotId: string,
-    mode: 'full-image' | 'thumbnail-text'
+    mode: CardLayout
   ): void => {
     setSlotLayoutPreferences(prev => ({ ...prev, [slotId]: mode }));
   };
 
-  // Only one story can be featured at a time (reference behaviour):
-  // clicking the star on the featured story unfeatures it.
-  const handleToggleFeatured = (storyId: string): void => {
-    setFeaturedStoryId(prev => {
-      const isFeature = prev !== storyId;
-      if (isFeature) {
-        showToast('Story marked as featured', 'success');
-      } else {
-        showToast('Story unfeatured', 'success');
-      }
-      return isFeature ? storyId : null;
-    });
-  };
-
+  /**
+   * Enters scheduling mode.
+   *
+   * Parks the current board so it can be restored on exit, then clears the
+   * slots to give the new schedule a blank arrangement to build.
+   */
   const handleScheduleGroup = (): void => {
-    // Save current board state
     setOriginalBoardState({ ...slotStories });
 
-    // Clear the board slots
     const clearedSlots: SlotStoryMap = {};
     Object.keys(slotStories).forEach(key => {
       clearedSlots[key] = undefined;
@@ -459,8 +712,8 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     setSelectedScheduleTime('09:00');
   };
 
+  /** Leaves scheduling mode and restores the board parked on entry. */
   const handleExitScheduling = (): void => {
-    // Restore original board state
     setSlotStories({ ...originalBoardState });
     setOriginalBoardState({});
 
@@ -470,13 +723,22 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     setSelectedScheduleTime('09:00');
   };
 
+  /** Opens the calendar overlay used to pick the scheduled date and time. */
   const handleOpenDateTimePicker = (): void => {
     setShowCalendarOverlay(true);
   };
 
+  /**
+   * Saves the current arrangement as a scheduled group.
+   *
+   * Rejects the attempt, with an explanatory toast, when no date is chosen,
+   * the board is empty, the group cap is reached, or that date already has a
+   * group. On success the saved record — which carries the SharePoint item id —
+   * is added to state and scheduling mode exits.
+   */
   const handleScheduleNow = (): void => {
     if (!selectedScheduleDate) {
-      showToast('Please select a date', 'error');
+      showToast('No Date Selected', 'error', 'Please select a date from the calendar before scheduling.');
       return;
     }
 
@@ -489,46 +751,44 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       return;
     }
 
-    // Reference cap: at most 10 scheduled groups.
     if (scheduledGroups.length >= MAX_SCHEDULED_GROUPS) {
-      showToast('Maximum Groups Reached', 'error', `You can only have up to ${MAX_SCHEDULED_GROUPS} scheduled groups.`);
+      showToast('Maximum Groups Reached', 'error', `You can only have up to ${MAX_SCHEDULED_GROUPS} scheduled groups. Please remove a group first.`);
       return;
     }
 
-    // Reference behaviour: one group per date.
-    const scheduleDate = new Date(selectedScheduleDate);
+    const scheduleDate = fromDateKey(selectedScheduleDate);
     const dateTaken = scheduledGroups.some(
       g => g.date.toDateString() === scheduleDate.toDateString()
     );
     if (dateTaken) {
-      showToast('Date Already Scheduled', 'error', "There's already a scheduled group for this date.");
+      showToast('Date Already Scheduled', 'error', "There's already a scheduled group for this date. Please choose a different date.");
       return;
     }
 
     const layoutConfig = getLayoutConfig(selectedLayout);
     const scheduledGroup: ScheduledStoryGroup = {
       id: `scheduled-${Date.now()}`,
-      date: new Date(selectedScheduleDate),
+      date: scheduleDate,
       time: selectedScheduleTime,
-      slotStories: { ...slotStories }, // Store the exact slot-to-story mapping
-      layoutType: selectedLayout, // Store the layout type for validation
+      slotStories: { ...slotStories },
+      slotLayoutPreferences: { ...slotLayoutPreferences },
+      layoutType: selectedLayout,
       layoutName: layoutConfig.name,
       createdAt: new Date()
     };
 
-    // Persist to the "Schedule Stories" list, then reflect the saved record
-    // (which carries the SharePoint item id) in state.
     createScheduledGroup(scheduledGroup)
       .then((saved) => {
         setScheduledGroups(prev => [...prev, saved]);
         handleExitScheduling();
 
-        const formattedDate = new Date(selectedScheduleDate).toLocaleDateString('en-US', {
+        const formattedDate = scheduleDate.toLocaleDateString('en-US', {
           weekday: 'long',
           month: 'short',
-          day: 'numeric'
+          day: 'numeric',
+          year: 'numeric'
         });
-        showToast('Board Scheduled Successfully!', 'success', `Scheduled for ${formattedDate} at ${formatTime12(selectedScheduleTime)}.`);
+        showToast('Board Scheduled Successfully!', 'success', `${boardStories.length} stories scheduled for ${formattedDate}.`, 4000);
       })
       .catch((err) => {
         console.error('Failed to save scheduled group:', err);
@@ -536,6 +796,11 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       });
   };
 
+  /**
+   * Asks for confirmation before removing a scheduled group.
+   *
+   * @param groupId - Group to remove. Unknown ids are ignored.
+   */
   const handleDeleteScheduledGroup = (groupId: string): void => {
     const groupToRemove = scheduledGroups.find(g => g.id === groupId);
     if (groupToRemove) {
@@ -543,13 +808,20 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     }
   };
 
+  /**
+   * Removes a scheduled group once deletion is confirmed.
+   *
+   * Its stories return to the available list, skipping any already present so
+   * the list cannot gain duplicates.
+   *
+   * @param groupId - Group to remove.
+   */
   const handleDeleteScheduledGroupConfirmed = (groupId: string): void => {
     const groupToRemove = scheduledGroups.find(g => g.id === groupId);
     if (!groupToRemove) return;
 
     deleteScheduledGroupByGroupId(groupId)
       .then(() => {
-        // Return stories to available list (preventing duplicates)
         const groupStories = Object.keys(groupToRemove.slotStories)
           .map(key => groupToRemove.slotStories[key])
           .filter((s): s is IStory => s !== undefined);
@@ -560,7 +832,6 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
           return [...toAdd, ...prev];
         });
 
-        // Filter group from state and close overlay
         setScheduledGroups(prev => prev.filter(g => g.id !== groupId));
         setGroupToDelete(null);
 
@@ -569,7 +840,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
           month: 'short',
           day: 'numeric'
         });
-        showToast('Scheduled Group Removed', 'success', `Stories scheduled for ${formattedDate} returned to available list.`);
+        showToast('Scheduled Group Removed', 'success', `${groupStories.length} stories from ${formattedDate} returned to available list.`);
       })
       .catch((err) => {
         console.error('Failed to delete scheduled group:', err);
@@ -578,8 +849,13 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       });
   };
 
+  /**
+   * Leaves group editing mode.
+   *
+   * Returns the group's stories to the available list and restores the board
+   * parked when editing began. Shared by both the save and cancel paths.
+   */
   const handleExitGroupEditingMode = (): void => {
-    // 1. Move any stories currently on the board back to available stories
     const storiesFromBoard: IStory[] = [];
     Object.keys(slotStories).forEach(key => {
       const story = slotStories[key];
@@ -594,18 +870,25 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       });
     }
     
-    // 2. Restore the original board state
     setSlotStories({ ...originalBoardState });
     
-    // 3. Clear editing state
     setIsGroupEditingMode(false);
     setEditingGroupId(null);
     setOriginalBoardState({});
     setShowRescheduleCalendar(false);
   };
 
+  /**
+   * Opens a scheduled group for rearrangement.
+   *
+   * When the group was built for a different layout preset the editor is asked
+   * whether to switch; declining aborts. The current board is parked, the
+   * group's arrangement is loaded in its place, and the group's own stories
+   * are withheld from the available list so they cannot be placed twice.
+   *
+   * @param group - Group to edit.
+   */
   const handleEnterGroupEditingMode = (group: ScheduledStoryGroup): void => {
-    // Check if the scheduled group's layout matches the current layout
     if (group.layoutType !== selectedLayout) {
       const confirmSwitch = window.confirm(
         `This group was created for "${group.layoutName}" layout, but you're currently viewing "${getLayoutConfig(selectedLayout).name}". ` +
@@ -616,21 +899,22 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
         setSelectedLayout(group.layoutType);
         showToast('Layout Switched', 'info', `Switched layout to ${group.layoutName}`);
       } else {
-        return; // User cancelled, don't patch
+        return;
       }
     }
 
-    // Save current board state
     setOriginalBoardState({ ...slotStories });
 
-    // Load the group's stories onto the main board
     setSlotStories({ ...group.slotStories });
+    if (group.slotLayoutPreferences) {
+      setSlotLayoutPreferences({ ...group.slotLayoutPreferences });
+    } else {
+      setSlotLayoutPreferences({});
+    }
     
-    // Set group editing mode state
     setIsGroupEditingMode(true);
     setEditingGroupId(group.id);
     
-    // Format group date as YYYY-MM-DD
     const pad2 = (n: number): string => (n < 10 ? `0${n}` : `${n}`);
     const y = group.date.getFullYear();
     const m = pad2(group.date.getMonth() + 1);
@@ -638,13 +922,11 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     setRescheduleDate(`${y}-${m}-${d}`);
     setRescheduleTime(group.time);
 
-    // Remove scheduled stories from available list (if they are not already placed on board, but we want to make sure they are not duplicated)
     const scheduledStoryIds = Object.keys(group.slotStories)
       .map(key => group.slotStories[key])
       .filter((story): story is IStory => story !== undefined)
       .map(story => story.id);
     
-    // Move any stories currently on the board back to available stories (except the ones in this group!)
     const storiesFromBoard: IStory[] = [];
     Object.keys(slotStories).forEach(key => {
       const story = slotStories[key];
@@ -663,15 +945,32 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     );
 
     setAvailableStories(finalAvailable);
-    showToast('Group Editing Mode', 'info', 'Rearrange stories on the main board.');
+
+    const editFormattedDate = group.date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric'
+    });
+    showToast(
+      'Group Editing Mode Active',
+      'info',
+      `Editing ${scheduledStoryIds.length} stories for ${editFormattedDate}. Rearrange on the main board.`
+    );
   };
 
+  /**
+   * Saves the arrangement and date currently being edited back to the group.
+   *
+   * Persists to SharePoint when the group has an item id, and updates state
+   * only when it does not. The date handed to the service is the same
+   * locally-built `Date` shown in the UI, so the two can never disagree about
+   * which calendar day was chosen.
+   */
   const handleSaveGroupEdits = (): void => {
     if (!editingGroupId) return;
     const group = scheduledGroups.find(g => g.id === editingGroupId);
     if (!group) return;
 
-    // Compute the new display date (local) from the picker, if the date changed.
     let newDate = group.date;
     if (rescheduleDate) {
       const parts = rescheduleDate.split('-');
@@ -688,49 +987,78 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     const applyLocal = (): void => {
       setScheduledGroups(prev => prev.map(g =>
         g.id === editingGroupId
-          ? { ...g, slotStories: newSlotStories, date: newDate, time: rescheduleTime }
+          ? { ...g, slotStories: newSlotStories, slotLayoutPreferences: { ...slotLayoutPreferences }, date: newDate, time: rescheduleTime }
           : g
       ));
       handleExitGroupEditingMode();
-      showToast('Group Updated Successfully!', 'success', 'Saved scheduled group with new arrangement.');
+      const savedCount = Object.keys(newSlotStories)
+        .map(k => newSlotStories[k])
+        .filter((s): s is IStory => !!s).length;
+      showToast('Group Updated Successfully!', 'success', `Saved ${savedCount} stories with new arrangement.`);
     };
 
     if (typeof group.spId === 'number') {
-      // Persist to SharePoint. Use a UTC-midnight date built from the picker
-      // string (timezone-proof) when the date changed, else the group's own.
-      const serviceDate = rescheduleDate ? new Date(`${rescheduleDate}T00:00:00Z`) : group.date;
-      rescheduleGroup(group.spId, serviceDate, rescheduleTime, newSlotStories)
+      // `newDate` is already built from local parts, so the service and the
+      // displayed state agree on the calendar day. Re-parsing the picker string
+      // as UTC here is what used to make them disagree by up to a day.
+      rescheduleGroup(group.spId, newDate, rescheduleTime, newSlotStories, slotLayoutPreferences)
         .then(applyLocal)
         .catch((err) => {
           console.error('Failed to reschedule group:', err);
           showToast('Update Failed', 'error', 'Could not update the scheduled group in SharePoint.');
         });
     } else {
-      // Group was never persisted (no SharePoint id) — update locally only.
       applyLocal();
     }
   };
 
+  /** Abandons group edits and restores the board parked on entry. */
   const handleCancelGroupEdits = (): void => {
     if (!editingGroupId) return;
     handleExitGroupEditingMode();
-    showToast('Group Edits Cancelled', 'info', 'No changes were saved.');
+    showToast('Group Editing Cancelled', 'info', 'No changes were saved. Returned to normal mode.');
   };
 
+  /**
+   * Accepts a new date and time for the group being edited.
+   *
+   * Only closes the picker and confirms the choice — the change reaches
+   * SharePoint when the group edits are saved.
+   */
   const handleConfirmReschedule = (): void => {
     setShowRescheduleCalendar(false);
-    showToast('Group Rescheduled', 'success', 'New date/time confirmed. Click Save Group Edits to apply.');
+    const parts = rescheduleDate.split('-');
+    const rescheduledDate = rescheduleDate
+      ? new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
+      : new Date();
+    const formattedDate = rescheduledDate.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    showToast('Group Rescheduled Successfully!', 'success', `Group has been rescheduled to ${formattedDate}.`);
   };
 
-  // Publish the current board live: supersede the previous live board and write
-  // an immutable snapshot to the "Publish Stories" list.
+  /**
+   * Publishes the board live.
+   *
+   * Supersedes the previous live board and writes an immutable snapshot of the
+   * slots, their per-slot layouts and the layout preset. An empty board is
+   * rejected with a toast rather than published.
+   */
   const handlePublishBoard = (): void => {
     const boardStories = Object.keys(slotStories)
       .map(key => slotStories[key])
       .filter((s): s is IStory => s !== undefined);
 
     if (boardStories.length === 0) {
-      showToast('Nothing to Publish', 'error', 'Add at least one story to the board before publishing.');
+      showToast(
+        'Cannot Publish Empty Board',
+        'error',
+        'Please add at least one story to the board before publishing. Drag stories from the Available Stories section to any slot.',
+        4000
+      );
       return;
     }
 
@@ -738,11 +1066,16 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     publishBoard({
       layoutType: selectedLayout,
       layoutName: layoutConfig.name,
-      slotStories: { ...slotStories }
+      slotStories: { ...slotStories },
+      slotLayoutPreferences
     })
       .then(() => {
-        const count = boardStories.length;
-        showToast('Board Published!', 'success', `${count} ${count === 1 ? 'story is' : 'stories are'} now live.`);
+        showToast(
+          'Storyboard Published!',
+          'success',
+          `Successfully published ${boardStories.length} stories to SharePoint. Board layout and content have been saved.`,
+          4000
+        );
       })
       .catch((err) => {
         console.error('Failed to publish board:', err);
@@ -750,109 +1083,20 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       });
   };
 
-  // Search matches on title only.
   const filteredStories = availableStories.filter(story =>
     story.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-
-
-  // Row in the Available Stories list. Only the left region is a drag
-  // handle (reference behaviour); star/edit actions live outside it.
-  const AvailableStoryItem: React.FC<{
-    story: IStory;
-    isFeatured: boolean;
-    onEdit: (storyId: string) => void;
-    onToggleFeatured: (storyId: string) => void;
-  }> = ({ story, isFeatured, onEdit, onToggleFeatured }) => {
-    const {
-      attributes,
-      listeners,
-      setNodeRef,
-      transform,
-      transition,
-      isDragging,
-    } = useSortable({
-      id: story.id,
-      data: {
-        sortable: {
-          containerId: 'available-stories',
-        },
-      },
-    });
-
-    const style = {
-      transform: CSS.Translate.toString(transform),
-      transition,
-    };
-
-    const { source, domain } = detectStorySource(story.linkToPost);
-
+  if (isLoading) {
     return (
-      <div
-        ref={setNodeRef}
-        style={style}
-        {...attributes}
-        className={`${styles.storyCard} ${isDragging ? styles.dragging : ''} ${isFeatured ? styles.storyCardFeatured : ''}`}
-      >
-        <div className={styles.storyDragArea} {...listeners}>
-          <img src={story.imageUrl} alt={story.title} className={styles.storyImage} />
-          <div className={styles.storyContent}>
-            <div className={styles.storyTitleRow}>
-              <h4>{story.title}</h4>
-              {isFeatured && (
-                <Icon iconName="FavoriteStarFill" className={styles.featuredStar} />
-              )}
-            </div>
-            <div className={styles.storyMeta}>
-              <span className={styles.storyDate}>{formatPublishDate(story.date)}</span>
-              {/* Commented out source badge (e.g. google.com / LinkedIn / External)
-              {source !== 'internal' && (
-                <span
-                  className={`${styles.rowBadge} ${source === 'linkedin' ? styles.rowBadgeLinkedin : styles.rowBadgeExternal}`}
-                >
-                  <Icon iconName={source === 'linkedin' ? 'LinkedInLogo' : 'Globe'} />
-                  {source === 'linkedin' ? 'LinkedIn' : domain || 'External'}
-                </span>
-              )}
-              */}
-            </div>
-          </div>
-        </div>
-        <div className={styles.storyActions}>
-          {/* Commented out feature button
-          <button
-            type="button"
-            className={`${styles.actionBtn} ${isFeatured ? styles.starBtnActive : ''}`}
-            onClick={() => onToggleFeatured(story.id)}
-            title={isFeatured ? 'Remove featured' : 'Mark as featured'}
-            aria-label={isFeatured ? 'Remove featured' : 'Mark as featured'}
-            aria-pressed={isFeatured}
-          >
-            <Icon iconName={isFeatured ? 'FavoriteStarFill' : 'FavoriteStar'} />
-          </button>
-          */}
-          <button
-            type="button"
-            className={styles.actionBtn}
-            onClick={() => onEdit(story.id)}
-            title="Edit story"
-            aria-label="Edit story"
-          >
-            <Icon iconName="Edit" />
-          </button>
-        </div>
+      <div className={styles.storyDragDrop}>
+        <BoardSkeleton />
       </div>
     );
-  };
+  }
 
   return (
     <div className={styles.storyDragDrop}>
-      {isLoading && (
-        <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
-          Loading stories from SharePoint...
-        </div>
-      )}
       {error && (
         <div style={{ padding: '20px', backgroundColor: '#fee', color: '#c00', borderRadius: '4px', marginBottom: '20px' }}>
           {error}
@@ -860,17 +1104,6 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       )}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <div className={styles.layoutSelectContainer}>
-            <label className={styles.layoutLabel}>View:</label>
-            <LayoutSelect
-              className={styles.layoutSelect}
-              value={selectedLayout}
-              options={layoutOptions}
-              onChange={handleLayoutChange}
-              disabled={isSchedulingMode || isGroupEditingMode}
-              ariaLabel="Select layout view"
-            />
-          </div>
           <button
             type="button"
             className={styles.btnPrimary}
@@ -896,7 +1129,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
           <button
             type="button"
             className={styles.btnReset}
-            onClick={handleClearBoard}
+            onClick={handleResetBoard}
             disabled={isSchedulingMode || isGroupEditingMode}
           >
             <Icon iconName="Refresh" />
@@ -923,7 +1156,6 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       >
         <div className={styles.layoutContainer}>
           
-          {/* Dynamic Layout Renderer */}
           <div className={`${styles.mainLayout} ${
             isSchedulingMode ? styles.schedulingActive : 
             isGroupEditingMode ? styles.groupEditingActive : ''
@@ -948,13 +1180,10 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
               onRemoveStory={handleRemoveFromSlot}
               slotLayoutPreferences={slotLayoutPreferences}
               onSlotLayoutChange={handleSlotLayoutChange}
-              featuredStoryId={featuredStoryId || undefined}
             />
           </div>
 
-          {/* Bottom Section */}
           <div className={styles.bottomSection}>
-            {/* Scheduled Stories */}
             <div className={styles.scheduledSection}>
               <div className={styles.sectionHeader}>
                 <h3>Scheduled Stories</h3>
@@ -964,8 +1193,8 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
                       ✏️ Group Editing Mode
                     </div>
                     <div className={styles.buttonWithDropdown}>
-                      <button 
-                        className={styles.schedulingBtnSmall}
+                      <button
+                        className={`${styles.schedulingBtnSmall} ${styles.datePickerBtn}`}
                         onClick={() => setShowRescheduleCalendar(!showRescheduleCalendar)}
                       >
                         <Icon iconName="Calendar" /> Reschedule
@@ -988,7 +1217,6 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
                               
                               if (compareDate < today) return true;
                               
-                              // Disable if already scheduled (excluding the current group being edited)
                               return scheduledGroups.some(g => 
                                 g.id !== editingGroupId && 
                                 g.date.toDateString() === compareDate.toDateString()
@@ -998,17 +1226,19 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
                         </div>
                       )}
                     </div>
-                    <button 
+                    <button
                       className={`${styles.schedulingBtnSmall} ${styles.saveGroupEditsBtn}`}
                       onClick={handleSaveGroupEdits}
                     >
-                      <Icon iconName="CheckMark" /> Save Group Edits
+                      <span className={styles.labelFull}>✓ Save Group Edits</span>
+                      <span className={styles.labelShort}>✓ Save</span>
                     </button>
-                    <button 
+                    <button
                       className={styles.schedulingBtnSmall}
                       onClick={handleCancelGroupEdits}
                     >
-                      <Icon iconName="Cancel" /> Cancel Edits
+                      <span className={styles.labelFull}>✕ Cancel Edits</span>
+                      <span className={styles.labelShort}>✕ Cancel</span>
                     </button>
                   </div>
                 ) : !isSchedulingMode ? (
@@ -1018,7 +1248,9 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
                       onClick={handleScheduleGroup}
                       disabled={availableStories.length === 0}
                     >
-                      <Icon iconName="Add" /> Schedule New Group
+                      <Icon iconName="Add" />
+                      <span className={styles.labelFull}>Schedule New Group</span>
+                      <span className={styles.labelShort}>Schedule Group</span>
                     </button>
                   )
                 ) : (
@@ -1027,8 +1259,8 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
                       📅 Scheduling Mode
                     </div>
                     <div className={styles.buttonWithDropdown}>
-                      <button 
-                        className={styles.schedulingBtnSmall}
+                      <button
+                        className={`${styles.schedulingBtnSmall} ${styles.datePickerBtn}`}
                         onClick={handleOpenDateTimePicker}
                       >
                         <Icon iconName="Calendar" /> {selectedScheduleDate && selectedScheduleTime ? (() => {
@@ -1069,7 +1301,6 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
                               
                               if (compareDate < today) return true;
                               
-                              // Disable if already scheduled
                               return scheduledGroups.some(g => 
                                 g.date.toDateString() === compareDate.toDateString()
                               );
@@ -1078,11 +1309,12 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
                         </div>
                       )}
                     </div>
-                    <button 
+                    <button
                       className={styles.schedulingBtnSmall}
                       onClick={handleExitScheduling}
                     >
-                      <Icon iconName="Cancel" /> Exit Scheduling
+                      <span className={styles.labelFull}>Exit Scheduling</span>
+                      <span className={styles.labelShort}>Exit</span>
                     </button>
                   </div>
                 )}
@@ -1112,10 +1344,9 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
                               </h4>
                               <p className={styles.groupMetaText}>
                                 Scheduled for {formatTime12(group.time)} • {Object.keys(group.slotStories).map(key => group.slotStories[key]).filter(story => story !== undefined).length} of 5 stories
-                                {isEditingThis && <span className={styles.editingLabel}> (Editing on Main Board)</span>}
+                                {isEditingThis && <span className={styles.editingLabel}>(Editing on Main Board)</span>}
                               </p>
                             </div>
-                            <span className={styles.layoutTag}>{group.layoutName}</span>
                           </div>
                           <div className={styles.groupActions}>
                             <button
@@ -1169,7 +1400,6 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
               )}
             </div>
 
-            {/* Available Stories */}
             <div className={styles.availableContainer}>
               <div className={styles.sidebarHeader}>
                 <h3>Available Stories</h3>
@@ -1209,7 +1439,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
                           <>
                             <Icon iconName="Search" className={styles.emptySearchIcon} />
                             <p>No stories found matching &quot;{searchTerm}&quot;</p>
-                            <p className={styles.emptyHint}>Try adjusting your search terms</p>
+                            <p className={styles.emptyHint}>Try a different search term</p>
                           </>
                         ) : (
                           <p>No stories available</p>
@@ -1220,9 +1450,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
                         <AvailableStoryItem
                           key={story.id}
                           story={story}
-                          isFeatured={featuredStoryId === story.id}
                           onEdit={handleEditStory}
-                          onToggleFeatured={handleToggleFeatured}
                         />
                       ))
                     )}
@@ -1238,6 +1466,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
         <AddStoryModal
           onClose={() => setIsModalOpen(false)}
           onAdd={handleAddStory}
+          showToast={showToast}
         />
       )}
 
@@ -1247,6 +1476,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
           onClose={() => setEditingStory(null)}
           onUpdate={handleUpdateStory}
           onDelete={handleDeleteStory}
+          showToast={showToast}
         />
       )}
 

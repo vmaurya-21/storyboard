@@ -4,7 +4,6 @@ import { DndContext } from '@dnd-kit/core';
 import CardSlot from '../../cards/CardSlot';
 import { IStory } from '../../types';
 
-// Wrapper component to provide DndContext
 const DndWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <DndContext onDragEnd={() => {}}>{children}</DndContext>
 );
@@ -26,7 +25,7 @@ describe('CardSlot Component', () => {
       </DndWrapper>
     );
     
-    expect(screen.getByText('+')).toBeInTheDocument();
+    expect(document.querySelector('[data-icon-name="Add"]')).toBeInTheDocument();
   });
 
   it('should render story when story is provided', () => {
@@ -37,7 +36,7 @@ describe('CardSlot Component', () => {
     );
     
     expect(screen.getByText('Test Story')).toBeInTheDocument();
-    expect(screen.queryByText('+')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-icon-name="Add"]')).not.toBeInTheDocument();
   });
 
   it('should pass variant to StoryCard', () => {

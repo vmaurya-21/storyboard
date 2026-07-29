@@ -3,12 +3,22 @@ import styles from './AddStoryModal.module.scss';
 import { ScheduledStoryGroup } from './types';
 import { formatTime12 } from './DateTimePicker';
 
+/** Props for {@link DeleteGroupModal}. */
 interface IDeleteGroupModalProps {
+  /** Group the dialog is asking about. */
   group: ScheduledStoryGroup;
+  /** Called when the dialog is dismissed without deleting. */
   onClose: () => void;
+  /** Called when deletion is confirmed. */
   onConfirm: () => void;
 }
 
+/**
+ * Confirmation dialog for removing a scheduled group.
+ *
+ * Names the group's date, time and story count so the editor can tell which
+ * schedule they are about to discard.
+ */
 const DeleteGroupModal: React.FC<IDeleteGroupModalProps> = ({ group, onClose, onConfirm }) => {
   const formattedDate = group.date.toLocaleDateString('en-US', {
     weekday: 'long',
@@ -19,6 +29,14 @@ const DeleteGroupModal: React.FC<IDeleteGroupModalProps> = ({ group, onClose, on
 
   const formattedTime = formatTime12(group.time);
 
+  /**
+   * Dismisses the dialog when the backdrop itself is clicked.
+   *
+   * The target check keeps clicks inside the dialog from bubbling up and
+   * closing it.
+   *
+   * @param e - Click event from the overlay element.
+   */
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>): void => {
     if (e.target === e.currentTarget) {
       onClose();

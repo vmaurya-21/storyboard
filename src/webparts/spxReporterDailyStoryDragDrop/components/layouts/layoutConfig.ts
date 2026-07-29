@@ -1,9 +1,11 @@
 import { LayoutConfig, LayoutType } from '../types';
 
-// Reporter Daily Layout — ported 1:1 from the reference:
-//   Column 1 (two-medium): full-image medium + thumbnail-text medium
-//   Column 2 (small-tall):  text-only small   + full-image tall
-//   Column 3 (full):        full-image large (fills the column)
+/**
+ * Reporter Daily preset: five slots across three columns.
+ *
+ * Columns one and two stack two slots each; column three holds a single
+ * full-height slot spanning both rows.
+ */
 const reporterDailyLayout: LayoutConfig = {
   id: 'reporterDaily',
   name: 'Reporter Daily Site',
@@ -25,9 +27,7 @@ const reporterDailyLayout: LayoutConfig = {
   }
 };
 
-// General Layout - 6 equal cards in 2 rows
-// Row 1: 3 equal cards
-// Row 2: 3 equal cards
+/** General preset: six equal cards in a 3-column, 2-row grid. */
 const generalLayout: LayoutConfig = {
   id: 'general',
   name: 'General',
@@ -50,7 +50,12 @@ const generalLayout: LayoutConfig = {
   }
 };
 
-// Highlight Layout - 5-slot layout with 4 medium cards and 1 tall card
+/**
+ * Highlight preset: five slots, one of them full height.
+ *
+ * The grid template is intentionally minimal — this preset is laid out by
+ * {@link LayoutRenderer} rather than by named grid areas.
+ */
 const highlightLayout: LayoutConfig = {
   id: 'highlight',
   name: 'Highlight',
@@ -69,11 +74,14 @@ const highlightLayout: LayoutConfig = {
   }
 };
 
-// Connect Homepage Layout - a 5-slot full-screen carousel (original Highlight layout)
+/**
+ * Connect Homepage preset: the five slots are presented as one full-width
+ * carousel rather than a grid, so the grid template goes unused.
+ */
 const connectHomepageLayout: LayoutConfig = {
   id: 'connectHomepage',
   name: 'Connect Homepage',
-  description: 'Full-width carousel of up to 5 featured stories',
+  description: 'Full-width carousel of up to 5 stories',
   slots: [
     { id: 'slot-1', variant: 'large', cardLayout: 'full-image' },
     { id: 'slot-2', variant: 'large', cardLayout: 'full-image' },
@@ -88,7 +96,7 @@ const connectHomepageLayout: LayoutConfig = {
   }
 };
 
-// Layout Registry
+/** Every layout preset, keyed by {@link LayoutType}. */
 export const LAYOUTS: Record<LayoutType, LayoutConfig> = {
   reporterDaily: reporterDailyLayout,
   general: generalLayout,
@@ -96,10 +104,22 @@ export const LAYOUTS: Record<LayoutType, LayoutConfig> = {
   connectHomepage: connectHomepageLayout
 };
 
-// Helper function to get layout by type
+/**
+ * Looks up a layout preset by id.
+ *
+ * @param layoutType - Preset to resolve.
+ * @returns The matching preset. Because {@link LAYOUTS} is a total record over
+ * {@link LayoutType}, every valid id resolves.
+ */
 export const getLayoutConfig = (layoutType: LayoutType): LayoutConfig => {
   return LAYOUTS[layoutType];
 };
 
-// Available layouts for the "View" dropdown — the layouts.
-export const AVAILABLE_LAYOUTS: LayoutType[] = ['reporterDaily', 'general', 'highlight', 'connectHomepage'];
+/**
+ * Presets offered in the layout picker, in display order.
+ *
+ * A subset of {@link LAYOUTS}: the others remain defined so existing boards
+ * and scheduled groups saved against them still render, but they are no
+ * longer selectable.
+ */
+export const AVAILABLE_LAYOUTS: LayoutType[] = ['connectHomepage'];

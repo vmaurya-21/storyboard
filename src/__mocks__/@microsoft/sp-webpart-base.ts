@@ -1,4 +1,3 @@
-// Mock @microsoft/sp-webpart-base
 import { Version } from '@microsoft/sp-core-library';
 
 export const mockContext = {

@@ -3,28 +3,60 @@ import { useState } from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
 import styles from './DateTimePicker.module.scss';
 
-// Ported from the reference ui/datetime-picker.tsx: a 256px panel with a
-// month calendar (prev/next nav) and a footer holding "Time:", a time input
-// and a cyan confirm button, plus a preview line once a date is picked.
 
+/** Props for {@link DateTimePicker}. */
 export interface IDateTimePickerProps {
-  selectedDate: string; // 'YYYY-MM-DD' or '' when nothing selected
-  time: string; // 'HH:mm'
+  /** Selected day as `YYYY-MM-DD`, or `''` when nothing is chosen yet. */
+  selectedDate: string;
+  /** Selected time of day in 24-hour `HH:mm` form. */
+  time: string;
+  /** Called with a `YYYY-MM-DD` string when a day is picked. */
   onSelectDate: (date: string) => void;
+  /** Called with an `HH:mm` string when the time changes. */
   onTimeChange: (time: string) => void;
+  /** Called when the confirm button is pressed. */
   onConfirm: () => void;
+  /** Label for the confirm button. Defaults to `Confirm`. */
   confirmText?: string;
+  /** Return `true` to render a day as unselectable, e.g. an already-booked date. */
   isDateDisabled?: (date: Date) => boolean;
 }
 
+/** Column headings for the calendar grid, starting on Sunday. */
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
+/**
+ * Left-pads a number to two digits.
+ *
+ * @param n - Value to pad; expected to be non-negative.
+ * @returns The value as a two-character string, e.g. `7` becomes `07`.
+ */
 const pad2 = (n: number): string => (n < 10 ? `0${n}` : `${n}`);
 
+/**
+ * Builds a `YYYY-MM-DD` string from calendar parts.
+ *
+ * Assembled from local parts rather than `toISOString()` so the date never
+ * shifts a day under a timezone conversion.
+ *
+ * @param year - Four-digit year.
+ * @param month - Zero-based month, as returned by `Date.getMonth()`.
+ * @param day - Day of the month, starting at 1.
+ * @returns The formatted date string.
+ */
 const toDateStr = (year: number, month: number, day: number): string =>
   `${year}-${pad2(month + 1)}-${pad2(day)}`;
 
-// '09:30' -> '09:30 AM'
+/**
+ * Converts a 24-hour `HH:mm` string to a padded 12-hour label.
+ *
+ * Unparseable parts fall back to zero, so a malformed value renders as
+ * `12:00 AM` rather than `NaN`.
+ *
+ * @param time - Time of day as `HH:mm`.
+ * @returns The 12-hour label, e.g. `09:00` becomes `09:00 AM` and `13:05`
+ * becomes `01:05 PM`.
+ */
 export const formatTime12 = (time: string): string => {
   const parts = time.split(':');
   const h = parseInt(parts[0], 10) || 0;
@@ -34,6 +66,13 @@ export const formatTime12 = (time: string): string => {
   return `${pad2(h12)}:${pad2(m)} ${suffix}`;
 };
 
+/**
+ * Month calendar plus a time field, used to schedule a board.
+ *
+ * The selected date and time are controlled by the parent; the component owns
+ * only which month is on screen, seeded from `selectedDate` (or today when
+ * nothing is selected).
+ */
 const DateTimePicker: React.FC<IDateTimePickerProps> = ({
   selectedDate,
   time,
@@ -43,10 +82,15 @@ const DateTimePicker: React.FC<IDateTimePickerProps> = ({
   confirmText = 'Confirm',
   isDateDisabled
 }) => {
+  // The omitted `Z` is deliberate: a date-*time* string with no offset parses
+  // as local, which is what a calendar day needs. Adding it — or passing the
+  // bare `YYYY-MM-DD`, which parses as UTC — would land on the previous day
+  // for any negative UTC offset.
   const initial = selectedDate ? new Date(`${selectedDate}T00:00:00`) : new Date();
   const [viewYear, setViewYear] = useState(initial.getFullYear());
   const [viewMonth, setViewMonth] = useState(initial.getMonth());
 
+  /** Moves the calendar back one month, rolling over to December of the prior year. */
   const goPrevMonth = (): void => {
     if (viewMonth === 0) {
       setViewMonth(11);
@@ -56,6 +100,7 @@ const DateTimePicker: React.FC<IDateTimePickerProps> = ({
     }
   };
 
+  /** Moves the calendar forward one month, rolling over to January of the next year. */
   const goNextMonth = (): void => {
     if (viewMonth === 11) {
       setViewMonth(0);

@@ -4,7 +4,6 @@ import SpxReporterDailyStoryDragDrop from '../SpxReporterDailyStoryDragDrop';
 import { mockContext } from './mockData';
 import { AppMode } from '../../SpxReporterDailyStoryDragDropWebPart';
 
-// Mock the StoryDragDrop component since it's complex
 jest.mock('../StoryDragDrop', () => {
   return function MockStoryDragDrop({ context }: any) {
     return <div data-testid="story-drag-drop">StoryDragDrop Component - Context: {context ? 'provided' : 'missing'}</div>;

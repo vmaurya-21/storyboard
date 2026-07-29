@@ -1,6 +1,5 @@
 import '@testing-library/jest-dom';
 
-// Mock window.matchMedia
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: jest.fn().mockImplementation(query => ({
@@ -15,7 +14,6 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
-// Mock IntersectionObserver
 globalThis.IntersectionObserver = class IntersectionObserver {
   constructor() {}
   disconnect() {}

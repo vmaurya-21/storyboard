@@ -1,83 +1,113 @@
 import * as React from 'react';
 import { useState } from 'react';
-import { Icon } from '@fluentui/react/lib/Icon';
 import styles from './AddStoryModal.module.scss';
 import { IStory } from './types';
+import { XIcon } from './icons';
+import { useDialogBehavior } from './useDialogBehavior';
+import StoryFormFields from './StoryFormFields';
+import { useStoryForm } from './useStoryForm';
+import { TITLE_MAX_LENGTH } from './storyFormValidation';
 
+/** Props for {@link EditStoryModal}. */
 interface IEditStoryModalProps {
+  /** Story being edited; seeds the form fields. */
   story: IStory;
+  /** Called when the dialog is dismissed without saving. */
   onClose: () => void;
+  /** Called with the edited story when the form passes validation. */
   onUpdate: (story: IStory) => void;
+  /** Called with the story id once deletion is confirmed. */
   onDelete: (storyId: string) => void;
+  /** Raises a notification. Used to report validation failures. */
+  showToast?: (message: string, type: 'success' | 'error' | 'info', description?: string) => void;
 }
 
-const EditStoryModal: React.FC<IEditStoryModalProps> = ({ story, onClose, onUpdate, onDelete }) => {
-  const [title, setTitle] = useState(story.title);
-  const [description, setDescription] = useState(story.description);
-  const [imageUrl, setImageUrl] = useState(story.imageUrl);
-  const [linkToPost, setLinkToPost] = useState(story.linkToPost);
-  const [errors, setErrors] = useState<{ [key: string]: string }>({});
+/**
+ * Dialog for editing or deleting an existing story.
+ *
+ * Mirrors `AddStoryModal`'s validation, and adds a two-step delete: the
+ * destructive action opens an inline confirmation rather than firing at once.
+ * Unlike the add form, blank image and link values fall back to defaults on
+ * save instead of being rejected.
+ */
+const EditStoryModal: React.FC<IEditStoryModalProps> = ({ story, onClose, onUpdate, onDelete, showToast }) => {
+  const {
+    values,
+    errors,
+    setDescription,
+    handleTitleChange,
+    handleImageUrlChange,
+    handleLinkToPostChange,
+    validateForm,
+    getFieldClass,
+  } = useStoryForm({
+    title: story.title,
+    description: story.description,
+    imageUrl: story.imageUrl,
+    linkToPost: story.linkToPost,
+  });
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
-  // Helper function to validate URLs
-  const isValidUrl = (url: string): boolean => {
-    try {
-      // eslint-disable-next-line no-new
-      new URL(url);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  // Validate form inputs
-  const validateForm = (): boolean => {
-    const newErrors: { [key: string]: string } = {};
-
-    if (!title.trim()) {
-      newErrors.title = 'Title is required';
-    }
-
-    if (!imageUrl.trim()) {
-      newErrors.imageUrl = 'Image URL is required';
-    } else if (!isValidUrl(imageUrl)) {
-      newErrors.imageUrl = 'Please enter a valid URL';
-    }
-
-    if (!linkToPost.trim()) {
-      newErrors.linkToPost = 'Link to Post is required';
-    } else if (!isValidUrl(linkToPost)) {
-      newErrors.linkToPost = 'Please enter a valid URL';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  // Close modal
+  /** Clears validation errors and dismisses the dialog. */
   const handleClose = (): void => {
     onClose();
   };
 
-  // Submit form
+  // Escape-to-close, focus trap and focus restore — the behaviour Radix gives
+  // the reference dialog for free.
+  const dialogRef = useDialogBehavior(() => handleClose());
+
+  /**
+   * Submits the edits.
+   *
+   * Passes the original story through with the edited fields applied, so
+   * properties the form does not expose survive the round trip. A blank image
+   * or link falls back to a placeholder rather than being written empty. On
+   * failure the dialog stays open and a toast names the problem.
+   */
   const handleSubmit = (): void => {
     if (validateForm()) {
       onUpdate({
         ...story,
-        title,
-        description: description || '(optional)',
-        imageUrl: imageUrl || 'https://www.spxdaily.com/images-bg/extra-solar-flares-patch-bg.jpg',
-        linkToPost: linkToPost || '#'
+        title: values.title,
+        description: values.description.trim(),
+        imageUrl: values.imageUrl || 'https://www.spxdaily.com/images-bg/extra-solar-flares-patch-bg.jpg',
+        linkToPost: values.linkToPost || '#'
       });
       handleClose();
+    } else {
+      if (!values.title.trim() || !values.imageUrl.trim() || !values.linkToPost.trim()) {
+        showToast?.(
+          'Missing Required Fields',
+          'error',
+          'Please fill in Title, Image URL, and Link to Post.'
+        );
+      } else if (values.title.length > TITLE_MAX_LENGTH) {
+        showToast?.(
+          'Title Too Long',
+          'error',
+          `Title must be ${TITLE_MAX_LENGTH} characters or less.`
+        );
+      } else {
+        showToast?.(
+          'Invalid URL',
+          'error',
+          'Please enter valid URLs for Image URL and Link to Post.'
+        );
+      }
     }
   };
 
-  // Delete story
+  /** Opens the inline delete confirmation. Deletion happens only once confirmed. */
   const handleDelete = (): void => {
     setIsDeleteConfirmOpen(true);
   };
 
+  /**
+   * Dismisses the dialog when the backdrop itself is clicked.
+   *
+   * @param e - Click event from the overlay element.
+   */
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>): void => {
     if (e.target === e.currentTarget) {
       handleClose();
@@ -86,11 +116,23 @@ const EditStoryModal: React.FC<IEditStoryModalProps> = ({ story, onClose, onUpda
 
   return (
     <div className={styles.modalOverlay} onClick={handleOverlayClick}>
-      <div className={styles.modalContent}>
+      <div
+        ref={dialogRef}
+        className={styles.modalContent}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-story-heading"
+      >
         <div className={styles.modalHeader}>
-          <h2>Edit Story</h2>
-          <button className={styles.closeBtn} onClick={handleClose} title="Close">
-            ×
+          <h2 id="edit-story-heading">Edit Story</h2>
+          <button
+            type="button"
+            className={styles.closeBtn}
+            onClick={handleClose}
+            title="Close"
+            aria-label="Close"
+          >
+            <XIcon />
           </button>
         </div>
 
@@ -102,63 +144,22 @@ const EditStoryModal: React.FC<IEditStoryModalProps> = ({ story, onClose, onUpda
             💡 You can add stories from LinkedIn, external websites, or internal sources. The source will be automatically detected from the URL.
           </p>
 
-          <div className={styles.formGroup}>
-            <label htmlFor="edit-story-title">
-              Title <span className={styles.required}>*</span>
-            </label>
-            <input
-              id="edit-story-title"
-              type="text"
-              placeholder="Enter story title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className={errors.title ? styles.inputError : ''}
-            />
-            {errors.title && <span className={styles.errorMessage}>{errors.title}</span>}
-          </div>
-
-          <div className={styles.formGroup}>
-            <label htmlFor="edit-story-description">
-              Description
-            </label>
-            <textarea
-              id="edit-story-description"
-              placeholder="Enter story description (optional)"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={4}
-            />
-          </div>
-
-          <div className={styles.formGroup}>
-            <label htmlFor="edit-story-image">
-              Image URL <span className={styles.required}>*</span>
-            </label>
-            <input
-              id="edit-story-image"
-              type="text"
-              placeholder="Enter image URL"
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              className={errors.imageUrl ? styles.inputError : ''}
-            />
-            {errors.imageUrl && <span className={styles.errorMessage}>{errors.imageUrl}</span>}
-          </div>
-
-          <div className={styles.formGroup}>
-            <label htmlFor="edit-story-link">
-              Link to Post <span className={styles.required}>*</span>
-            </label>
-            <input
-              id="edit-story-link"
-              type="text"
-              placeholder="Enter story URL"
-              value={linkToPost}
-              onChange={(e) => setLinkToPost(e.target.value)}
-              className={errors.linkToPost ? styles.inputError : ''}
-            />
-            {errors.linkToPost && <span className={styles.errorMessage}>{errors.linkToPost}</span>}
-          </div>
+          <StoryFormFields
+            titleId="edit-story-title"
+            descriptionId="edit-story-description"
+            imageUrlId="edit-story-image"
+            linkToPostId="edit-story-link"
+            title={values.title}
+            description={values.description}
+            imageUrl={values.imageUrl}
+            linkToPost={values.linkToPost}
+            errors={errors}
+            getFieldClass={(field) => getFieldClass(field, styles.inputError)}
+            onTitleChange={handleTitleChange}
+            onDescriptionChange={setDescription}
+            onImageUrlChange={handleImageUrlChange}
+            onLinkToPostChange={handleLinkToPostChange}
+          />
         </div>
 
         <div className={styles.modalFooterWithDelete}>
@@ -181,12 +182,14 @@ const EditStoryModal: React.FC<IEditStoryModalProps> = ({ story, onClose, onUpda
           <div className={styles.modalContent} style={{ maxWidth: '400px' }}>
             <div className={styles.modalHeader}>
               <h2>Delete Story?</h2>
-              <button 
-                className={styles.closeBtn} 
-                onClick={() => setIsDeleteConfirmOpen(false)} 
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => setIsDeleteConfirmOpen(false)}
                 title="Close"
+                aria-label="Close"
               >
-                ×
+                <XIcon />
               </button>
             </div>
             <div className={styles.modalBody}>

@@ -41,7 +41,14 @@ module.exports = {
             tsconfig: {
                 jsx: 'react',
                 esModuleInterop: true,
-                allowJs: true
+                allowJs: true,
+                // Tests only. The project targets ES5, but @dnd-kit (transformed
+                // below rather than ignored) has `class DroppableContainersMap
+                // extends Map`, and ES5 downleveling emits `Map.call(this)` —
+                // which throws "Constructor Map requires 'new'" and stops three
+                // suites from loading at all. jsdom runs a modern engine, so
+                // there is nothing to gain from ES5 here.
+                target: 'ES2017'
             }
         }]
     },

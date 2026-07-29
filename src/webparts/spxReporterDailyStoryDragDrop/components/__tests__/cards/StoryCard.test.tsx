@@ -17,7 +17,8 @@ describe('StoryCard Component', () => {
     render(<StoryCard story={mockStory} variant="large" />);
     
     expect(screen.getByText('Test Story')).toBeInTheDocument();
-    expect(screen.getByText('2024-01-15')).toBeInTheDocument();
+    // Cards render dates via formatPublishDate, e.g. 'Jan 15th'.
+    expect(screen.getByText('Jan 15th')).toBeInTheDocument();
   });
 
   it('should render image when showImage is true', () => {

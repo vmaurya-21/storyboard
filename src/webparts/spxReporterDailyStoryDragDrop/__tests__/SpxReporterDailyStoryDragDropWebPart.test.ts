@@ -15,7 +15,6 @@ describe('SpxReporterDailyStoryDragDropWebPart', () => {
     });
 
     it('should have dataVersion property', () => {
-      // Access protected member for testing
       const version = (webPart as any).dataVersion;
       expect(version).toBeDefined();
       expect(version).toBeInstanceOf(Version);
@@ -24,7 +23,6 @@ describe('SpxReporterDailyStoryDragDropWebPart', () => {
 
   describe('Property Pane Configuration', () => {
     it('should return property pane configuration', () => {
-      // Access protected method for testing
       const config = (webPart as any).getPropertyPaneConfiguration();
       expect(config).toBeDefined();
     });
@@ -56,12 +54,10 @@ describe('SpxReporterDailyStoryDragDropWebPart', () => {
 
   describe('Properties', () => {
     it('should have default description property', () => {
-      // Access protected member for testing
       expect((webPart as any).properties).toBeDefined();
     });
 
     it('should allow setting description', () => {
-      // Access protected member for testing
       (webPart as any).properties.description = 'Test Description';
       expect((webPart as any).properties.description).toBe('Test Description');
     });
@@ -74,7 +70,6 @@ describe('SpxReporterDailyStoryDragDropWebPart', () => {
     });
 
     it('should have onDispose method', () => {
-      // Access protected method for testing
       expect((webPart as any).onDispose).toBeDefined();
       expect(typeof (webPart as any).onDispose).toBe('function');
     });
@@ -82,7 +77,6 @@ describe('SpxReporterDailyStoryDragDropWebPart', () => {
 
   describe('Version', () => {
     it('should return correct data version', () => {
-      // Access protected member for testing
       const version = (webPart as any).dataVersion;
       expect(version.toString()).toBe('1.0');
     });
@@ -96,7 +90,6 @@ describe('SpxReporterDailyStoryDragDropWebPart', () => {
       document.body.appendChild(domElement);
       (webPart as any).domElement = domElement;
 
-      // Mock context
       (webPart as any).context = {
         pageContext: {
           user: {
@@ -144,7 +137,6 @@ describe('SpxReporterDailyStoryDragDropWebPart', () => {
     it('should handle onThemeChanged with undefined theme', () => {
       (webPart as any).onThemeChanged(undefined);
 
-      // Should not throw and should return early
       expect(domElement.style.getPropertyValue('--bodyText')).toBe('');
     });
 
@@ -155,7 +147,6 @@ describe('SpxReporterDailyStoryDragDropWebPart', () => {
 
       (webPart as any).onThemeChanged(mockTheme);
 
-      // Should not throw
       expect(domElement.style.getPropertyValue('--bodyText')).toBe('');
     });
 

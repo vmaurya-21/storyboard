@@ -1,4 +1,3 @@
-// Mock @pnp/sp
 export const spfi = jest.fn(() => ({
   web: {
     lists: {

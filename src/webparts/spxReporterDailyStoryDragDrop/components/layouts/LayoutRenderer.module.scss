@@ -1,10 +1,5 @@
 @import '../tokens';
 
-// =============================================================
-// Board grid — mirrors the reference:
-//   grid-cols-1 md:grid-cols-3  gap-4 md:gap-6  h-auto md:h-96
-// No surface/shadow on the board itself.
-// =============================================================
 
 .layoutGrid {
     display: grid;
@@ -40,7 +35,6 @@
     }
 }
 
-// ---- Reporter Daily -----------------------------------------
 .reporterDaily {
     grid-template-columns: 1fr;
     gap: 16px;
@@ -78,7 +72,6 @@
     width: 100%;
 }
 
-// ---- General & Highlight ------------------------------------
 .general,
 .highlight {
     grid-template-columns: 1fr;

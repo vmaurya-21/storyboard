@@ -1,9 +1,5 @@
 @import 'tokens';
 
-// =============================================================
-// Add / Edit Story dialog — ported from the reference shadcn Dialog
-// (overlay black/50, rounded-lg card, cyan primary CTA).
-// =============================================================
 
 .modalOverlay {
     position: fixed;
@@ -29,7 +25,7 @@
     border: 1px solid $border;
     border-radius: $radius-lg;
     width: 100%;
-    max-width: 512px; // max-w-lg
+    max-width: 512px;
     max-height: 90vh;
     overflow: hidden;
     display: flex;
@@ -43,14 +39,18 @@
     to { transform: translateY(0) scale(1); opacity: 1; }
 }
 
+// Reference: DialogContent `p-4 md:p-8`, header `text-center sm:text-left`.
 .modalHeader {
-    padding: 24px 24px 8px 24px;
+    padding: 16px 16px 0;
     display: block;
     text-align: center;
 
     @media (min-width: #{$bp-sm}) {
-        padding: 20px 24px;
         text-align: left;
+    }
+
+    @media (min-width: #{$bp-md}) {
+        padding: 32px 32px 0;
     }
 
     h2 {
@@ -58,48 +58,52 @@
         font-size: $fs-lg;
         font-weight: $fw-semibold;
         color: $foreground;
-        line-height: $leading-tight;
+        line-height: 1; // reference: `leading-none`
     }
 }
 
+// Reference: an `X` icon at `top-4 right-4`, `size-4`, fading 70% -> 100%.
 .closeBtn {
     position: absolute;
     top: 16px;
     right: 16px;
     background: transparent;
-    border: 1px solid transparent;
-    font-size: 22px;
-    line-height: 1;
-    color: $muted-foreground;
+    border: none;
+    line-height: 0;
+    color: $foreground;
     cursor: pointer;
-    width: 28px;
-    height: 28px;
+    padding: 2px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     border-radius: $radius-sm;
-    transition: border-color 0.2s ease, color 0.2s ease;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
     z-index: 10;
 
     &:hover {
-        border-color: $foreground;
-        color: $foreground;
-        background: transparent;
+        opacity: 1;
+    }
+
+    &:focus-visible {
+        outline: 2px solid $ring;
+        outline-offset: 2px;
     }
 }
 
 .modalBody {
-    padding: 0 24px 8px;
+    // Header carries the side padding; this adds only the header -> body gap
+    // (reference: DialogHeader `mb-4 md:mb-6`).
+    padding: 16px 16px 0;
     overflow-y: auto;
     flex: 1;
-    padding-right: 20px; // extra padding to keep inputs clear of scrollbar
-
-    // Firefox scrollbar styling — keep these plain declarations BEFORE the
-    // nested &::-webkit-* rules to avoid Sass's mixed-declarations warning.
     scrollbar-width: thin;
     scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
 
-    // Custom scrollbar styling (WebKit)
+    @media (min-width: #{$bp-md}) {
+        padding: 24px 32px 0;
+    }
+
     &::-webkit-scrollbar {
         width: 6px;
     }
@@ -116,7 +120,7 @@
 }
 
 .modalDescription {
-    margin: 0 0 12px 0;
+    margin: 0 0 4px 0; // reference: DialogDescription `space-y-1`
     font-size: $fs-sm;
     color: $muted-foreground;
     line-height: $leading-normal;
@@ -129,22 +133,31 @@
 
 .modalTip {
     font-size: $fs-xs;
-    color: #2563eb; // text-blue-600
-    margin: 0 0 20px 0;
+    color: #2563eb;
+    margin: 0 0 16px 0;
     line-height: 1.4;
     text-align: center;
 
     @media (min-width: #{$bp-sm}) {
         text-align: left;
     }
+
+    @media (min-width: #{$bp-md}) {
+        margin-bottom: 24px;
+    }
 }
 
+// Reference: fields sit in `space-y-4 md:space-y-6`, each an inner `space-y-3`.
 .formGroup {
     margin-bottom: 16px;
 
+    @media (min-width: #{$bp-md}) {
+        margin-bottom: 24px;
+    }
+
     label {
         display: block;
-        margin-bottom: 8px;
+        margin-bottom: 12px;
         font-size: $fs-sm;
         font-weight: $fw-medium;
         color: $foreground;
@@ -153,13 +166,15 @@
     input,
     textarea {
         width: 100%;
-        padding: 8px 12px;
+        padding: 4px 12px; // reference: Input `px-3 py-1`
         border: 1px solid $border;
         border-radius: $radius-md;
         background: $input-background;
         color: $foreground;
         font-family: inherit;
-        font-size: $fs-sm;
+        // 16px on small screens is deliberate: below it, iOS Safari zooms the
+        // page on focus. The reference does the same via `text-base md:text-sm`.
+        font-size: $fs-base;
         transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
         &::placeholder {
@@ -168,24 +183,29 @@
 
         &:focus {
             outline: none;
-            border-color: $primary;
-            box-shadow: 0 0 0 3px rgba($primary, 0.15);
+            border-color: $ring;
+            box-shadow: 0 0 0 3px rgba($ring, 0.5);
+        }
+
+        @media (min-width: #{$bp-md}) {
+            font-size: $fs-sm;
         }
     }
 
     input {
-        height: 40px;
+        height: 36px; // reference: `h-9`
     }
 
     textarea {
-        resize: vertical;
-        min-height: 80px;
+        resize: none; // reference: `resize-none`
+        min-height: 64px; // reference: `min-h-16`
+        padding: 8px 12px; // reference: Textarea `px-3 py-2`
         line-height: $leading-normal;
     }
 }
 
 .required {
-    color: #b91c1c; // text-red-700
+    color: #b91c1c;
 }
 
 .optional {
@@ -205,13 +225,19 @@
     color: $destructive;
 }
 
-// ---- Footer -------------------------------------------------
+// Reference: the button row is `pt-6` inside the field stack, so the gap above
+// it is the stack's own spacing (16/24) plus 24 — 40 on mobile, 48 from md up.
+// The last field's margin supplies the first half.
 .modalFooter,
 .modalFooterWithDelete {
-    padding: 16px 24px 24px;
+    padding: 24px 16px 16px;
     display: flex;
-    gap: 12px;
+    gap: 8px; // reference: `gap-2`
     align-items: center;
+
+    @media (min-width: #{$bp-md}) {
+        padding: 24px 32px 32px;
+    }
 }
 
 .modalFooter {
@@ -224,15 +250,16 @@
 
 .buttonGroup {
     display: flex;
-    gap: 12px;
+    gap: 8px;
 }
 
+// Reference: shadcn Button, default size — `h-9 px-4 py-2`, `text-sm`, `font-medium`.
 %dialogBtn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    height: 40px;
+    height: 36px;
     padding: 0 16px;
     border-radius: $radius-md;
     font-family: inherit;
@@ -278,13 +305,3 @@
     }
 }
 
-// ---- Responsive ---------------------------------------------
-@media (max-width: #{$bp-sm - 1px}) {
-    .modalHeader,
-    .modalBody,
-    .modalFooter,
-    .modalFooterWithDelete {
-        padding-left: 16px;
-        padding-right: 16px;
-    }
-}

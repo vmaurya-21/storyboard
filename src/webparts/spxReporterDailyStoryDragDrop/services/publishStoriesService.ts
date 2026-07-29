@@ -1,57 +1,39 @@
-// =============================================================
-// Publish Stories service
-// -------------------------------------------------------------
-// Records boards that have been pushed live to the "Publish Stories"
-// SharePoint list. This is an append-only history: each publish writes a NEW,
-// immutable snapshot and supersedes the previous live one. The point of an
-// immutable snapshot is that later edits/deletes in "Available Stories" never
-// rewrite what actually went out.
-//
-// List columns this service targets:
-//   Title              Single line   - human label (auto-generated)
-//   PublishedDateTime  Date & Time   - when it went live (sort key)
-//   LayoutType         Choice        - reporterDaily | general | highlight
-//   BoardStateJson     Multi-line    - immutable board snapshot (source of truth)
-//   SourceScheduleId   Lookup        - -> Schedule Stories item (if published from a schedule)
-//   IsLive             Choice        - "Yes" | "No" (exactly one "Yes" at a time)
-//
-// Notes:
-//  * A Lookup is written through its id field ("<InternalName>Id"), i.e.
-//    "SourceScheduleIdId", set to the Schedule Stories list-item id.
-//  * IsLive is the sole live indicator: publishing flips the previous live row to
-//    IsLive=No and adds the new one as IsLive=Yes. When published from a schedule
-//    it also flips that schedule row to Status=Published (on the Schedule list).
-// =============================================================
 
 import { SPFI } from "@pnp/sp";
 import "@pnp/sp/webs";
 import "@pnp/sp/lists";
 import "@pnp/sp/items";
 import "@pnp/sp/fields";
-import { getSp } from "./sharePointService";
+import { getSp } from "./availableStoriesService";
 import { SCHEDULE_LIST_NAME, setGroupStatus } from "./scheduleStoriesService";
-import { IStory, LayoutType, SlotStoryMap } from "../components/types";
+import { IStory, LayoutType, SlotStoryMap, CardLayout } from "../components/types";
 import { getLayoutConfig } from "../components/layouts/layoutConfig";
 
-// ---- Constants ----------------------------------------------
+/** Title of the SharePoint list holding published board snapshots. */
 export const PUBLISH_LIST_NAME = "Publish Stories";
 
-const VALID_LAYOUT_TYPES: LayoutType[] = ["reporterDaily", "general", "highlight"];
-const DEFAULT_LAYOUT_TYPE: LayoutType = "reporterDaily";
+const VALID_LAYOUT_TYPES: LayoutType[] = ["reporterDaily", "general", "highlight", "connectHomepage"];
+const DEFAULT_LAYOUT_TYPE: LayoutType = "connectHomepage";
 
-// IsLive is a Choice column, so its values are strings. Keep them centralized.
+/** Value of the `IsLive` column marking the snapshot currently on air. */
 export const IS_LIVE_YES = "Yes";
+
+/** Value of the `IsLive` column marking a superseded snapshot. */
 export const IS_LIVE_NO = "No";
 
-// The lookup's id field: internal name of the column + "Id".
+/** Internal name of the lookup column pointing back at a Schedule Stories row. */
 const SOURCE_LOOKUP_ID_FIELD = "SourceScheduleIdId";
 
-// ---- Domain types -------------------------------------------
-
+/** Everything {@link publishBoard} needs to write a snapshot. */
 export interface IPublishBoardInput {
+  /** Layout preset the board was arranged in. */
   layoutType: LayoutType;
+  /** Display name of the preset. Resolved from the preset when omitted. */
   layoutName?: string;
+  /** The arrangement to publish. Empty slots are dropped from the snapshot. */
   slotStories: SlotStoryMap;
+  /** Per-slot card layout overrides to capture alongside the arrangement. */
+  slotLayoutPreferences?: Record<string, CardLayout>;
   /** SharePoint item id of the Schedule Stories row, when publishing a schedule. */
   sourceScheduleSpId?: number;
   /** App id of the schedule group, kept in the snapshot for traceability. */
@@ -60,37 +42,58 @@ export interface IPublishBoardInput {
   allowEmpty?: boolean;
 }
 
+/** A published snapshot, rehydrated from its list item. */
 export interface IPublishedBoardRecord {
+  /** SharePoint item id of the snapshot. */
   spId: number;
+  /** When the board was published. */
   publishedAt: Date;
+  /** Layout preset captured in the snapshot. */
   layoutType: LayoutType;
+  /** Display name of the preset at publish time. */
   layoutName: string;
+  /** The published arrangement. */
   slotStories: SlotStoryMap;
+  /** Per-slot card layout overrides captured with the arrangement. */
+  slotLayoutPreferences?: Record<string, CardLayout>;
+  /** Whether this snapshot is the one currently on air. */
   isLive: boolean;
+  /** Schedule Stories item this snapshot was published from, if any. */
   sourceScheduleSpId?: number;
 }
 
 /** Raw shape of a "Publish Stories" list item as read from SharePoint. */
 interface IRawPublishItem {
+  /** List item id. */
   Id: number;
+  /** Item title, used only for readability in the list view. */
   Title?: string;
+  /** Publish timestamp, in ISO form. */
   PublishedDateTime?: string;
+  /** Layout preset id, validated on read. */
   LayoutType?: string;
+  /** The serialized {@link IPublishBoardStateJson} payload. */
   BoardStateJson?: string;
+  /** Lookup id of the Schedule Stories row this was published from. */
   SourceScheduleIdId?: number | null;
+  /** `Yes` or `No`; see {@link IS_LIVE_YES}. */
   IsLive?: string;
 }
 
 /** Serialized board snapshot stored in BoardStateJson. */
 interface IPublishBoardStateJson {
+  /** Layout preset the arrangement belongs to. */
   layoutType: LayoutType;
+  /** Display name of the preset at publish time. */
   layoutName: string;
-  publishedAt: string; // ISO — source of truth for the timestamp
+  /** Publish timestamp, in ISO form. */
+  publishedAt: string;
+  /** App-side id of the schedule group this came from, for traceability. */
   sourceScheduleGroupId?: string;
-  slots: Array<{ slotId: string; story: IStory }>;
+  /** Filled slots only, each with its story and optional layout override. */
+  slots: Array<{ slotId: string; story: IStory; cardLayout?: CardLayout }>;
 }
 
-// ---- Guards / helpers ---------------------------------------
 
 const getSpOrThrow = (): SPFI => {
   const sp = getSp();
@@ -108,13 +111,16 @@ const isValidLayoutType = (value: string | undefined): value is LayoutType =>
 const countStories = (slotStories: SlotStoryMap): number =>
   Object.keys(slotStories).filter((k) => !!slotStories[k]).length;
 
-// ---- (De)serialization --------------------------------------
 
 const serializeBoardState = (input: IPublishBoardInput, publishedAt: Date): string => {
   const layoutName = input.layoutName || getLayoutConfig(input.layoutType).name;
-  const slots = Object.keys(input.slotStories)
-    .map((slotId) => ({ slotId, story: input.slotStories[slotId] }))
-    .filter((e): e is { slotId: string; story: IStory } => !!e.story);
+  const slots: Array<{ slotId: string; story: IStory; cardLayout?: CardLayout }> = Object.keys(input.slotStories)
+    .map((slotId) => {
+      const story = input.slotStories[slotId];
+      const cardLayout = input.slotLayoutPreferences ? input.slotLayoutPreferences[slotId] : undefined;
+      return { slotId, story, cardLayout } as { slotId: string; story: IStory | undefined; cardLayout?: CardLayout };
+    })
+    .filter((e): e is { slotId: string; story: IStory; cardLayout?: CardLayout } => !!e.story);
 
   const payload: IPublishBoardStateJson = {
     layoutType: input.layoutType,
@@ -137,7 +143,7 @@ const parseBoardState = (json: string | undefined): IPublishBoardStateJson | und
       publishedAt: parsed.publishedAt || "",
       sourceScheduleGroupId: parsed.sourceScheduleGroupId,
       slots: parsed.slots.filter(
-        (s): s is { slotId: string; story: IStory } => !!s && !!s.slotId && !!s.story
+        (s): s is { slotId: string; story: IStory; cardLayout?: CardLayout } => !!s && !!s.slotId && !!s.story
       ),
     };
   } catch (err) {
@@ -167,12 +173,18 @@ const mapRawToRecord = (raw: IRawPublishItem): IPublishedBoardRecord | undefined
       ? raw.LayoutType
       : DEFAULT_LAYOUT_TYPE;
 
-  // Prefer the JSON timestamp; fall back to the column.
   const publishedAt = state.publishedAt
     ? new Date(state.publishedAt)
     : raw.PublishedDateTime
       ? new Date(raw.PublishedDateTime)
       : new Date();
+
+  const slotLayoutPreferences: Record<string, CardLayout> = {};
+  state.slots.forEach(({ slotId, cardLayout }) => {
+    if (cardLayout) {
+      slotLayoutPreferences[slotId] = cardLayout;
+    }
+  });
 
   return {
     spId: raw.Id,
@@ -180,6 +192,7 @@ const mapRawToRecord = (raw: IRawPublishItem): IPublishedBoardRecord | undefined
     layoutType,
     layoutName: state.layoutName || getLayoutConfig(layoutType).name,
     slotStories: boardStateToSlotMap(state),
+    slotLayoutPreferences,
     isLive: raw.IsLive === IS_LIVE_YES,
     sourceScheduleSpId:
       typeof raw.SourceScheduleIdId === "number" ? raw.SourceScheduleIdId : undefined,
@@ -196,7 +209,6 @@ const SELECT_FIELDS: string[] = [
   "IsLive",
 ];
 
-// ---- Internal: supersede the current live record(s) ---------
 
 /**
  * Flip every currently-live record to IsLive=No. Normally there is at most one,
@@ -217,7 +229,27 @@ const supersedeLive = async (sp: SPFI): Promise<void> => {
   }
 };
 
-// ---- Public API ---------------------------------------------
+/**
+ * Keep the "Publish Stories" list at (at most) two rows: the one that is
+ * currently live and the one published just before it — the board "Reset Board"
+ * restores to. Everything older is deleted.
+ *
+ * Best-effort: a failure here must never fail an otherwise successful publish.
+ */
+const prunePublishHistory = async (sp: SPFI): Promise<void> => {
+  const items: Array<{ Id: number }> = await sp.web.lists
+    .getByTitle(PUBLISH_LIST_NAME)
+    .items.select("Id")
+    .orderBy("PublishedDateTime", false)
+    .top(500)();
+
+  if (items.length <= 2) return;
+
+  for (const item of items.slice(2)) {
+    await sp.web.lists.getByTitle(PUBLISH_LIST_NAME).items.getById(item.Id).delete();
+  }
+};
+
 
 /**
  * Publish the current board. Supersedes the previous live record, writes a new
@@ -240,10 +272,8 @@ export const publishBoard = async (
   }
 
   try {
-    // 1) Supersede whatever is currently live so only one row stays live.
     await supersedeLive(sp);
 
-    // 2) Write the new live snapshot.
     const publishedAt = new Date();
     const layoutName = input.layoutName || getLayoutConfig(input.layoutType).name;
     const label = `${publishedAt.toISOString().slice(0, 16).replace("T", " ")} · ${layoutName}`;
@@ -264,8 +294,12 @@ export const publishBoard = async (
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = result.data;
 
-    // 3) Best-effort: mark the source schedule as Published. Never let this
-    //    failure roll back a successful publish.
+    try {
+      await prunePublishHistory(sp);
+    } catch (pruneErr) {
+      console.warn("Publish Stories: published ok, but history pruning failed", pruneErr);
+    }
+
     if (typeof input.sourceScheduleSpId === "number") {
       try {
         await setGroupStatus(input.sourceScheduleSpId, "Published");
@@ -300,7 +334,7 @@ export const getLiveBoard = async (): Promise<IPublishedBoardRecord | undefined>
       .getByTitle(PUBLISH_LIST_NAME)
       .items.select(...SELECT_FIELDS)
       .filter(`IsLive eq '${IS_LIVE_YES}'`)
-      .orderBy("PublishedDateTime", false) // newest first
+      .orderBy("PublishedDateTime", false)
       .top(1)();
 
     if (!items.length) return undefined;
@@ -366,7 +400,6 @@ export const deletePublishedBoard = async (spId: number): Promise<void> => {
   }
 };
 
-// ---- Optional provisioning (self-heal missing list/columns) --
 
 /**
  * Ensure the "Publish Stories" list and its columns exist. Safe to call
@@ -388,7 +421,6 @@ export const ensurePublishStoriesList = async (): Promise<void> => {
       try {
         await fn();
       } catch {
-        /* column already exists — ignore */
       }
     };
 
@@ -397,7 +429,6 @@ export const ensurePublishStoriesList = async (): Promise<void> => {
     await addSafely(() => list.fields.addMultilineText("BoardStateJson"));
     await addSafely(() => list.fields.addChoice("IsLive", { Choices: [IS_LIVE_YES, IS_LIVE_NO] }));
 
-    // Lookup to Schedule Stories (needs that list's id).
     await addSafely(async () => {
       const scheduleList = await sp.web.lists.getByTitle(SCHEDULE_LIST_NAME).select("Id")();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

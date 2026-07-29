@@ -1,11 +1,30 @@
 import * as React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import StoryDragDrop from '../StoryDragDrop';
 import { mockStories, mockContext } from './mockData';
-import * as sharePointService from '../../services/sharePointService';
+import * as availableStoriesService from '../../services/availableStoriesService';
+import * as scheduleStoriesService from '../../services/scheduleStoriesService';
+import * as publishStoriesService from '../../services/publishStoriesService';
 
-// Mock dependencies
-jest.mock('../../services/sharePointService');
+jest.mock('../../services/availableStoriesService');
+jest.mock('../../services/scheduleStoriesService', () => {
+  const actual = jest.requireActual('../../services/scheduleStoriesService');
+  return {
+    ...actual,
+    createScheduledGroup: jest.fn(),
+    getScheduledGroups: jest.fn(),
+    deleteScheduledGroupByGroupId: jest.fn(),
+    rescheduleGroup: jest.fn(),
+  };
+});
+jest.mock('../../services/publishStoriesService', () => {
+  const actual = jest.requireActual('../../services/publishStoriesService');
+  return {
+    ...actual,
+    publishBoard: jest.fn(),
+    getLiveBoard: jest.fn(),
+  };
+});
 jest.mock('../AddStoryModal', () => ({ onClose, onAdd }: any) => (
   <div data-testid="add-story-modal">
     <button onClick={() => onAdd({ title: 'New Story', imageUrl: 'https://example.com/new.jpg', linkToPost: 'https://example.com/new' })}>Add</button>
@@ -24,8 +43,13 @@ jest.mock('../layouts/LayoutRenderer', () => ({ onRemoveStory }: any) => (
     <button onClick={() => onRemoveStory('slot-1')}>Remove</button>
   </div>
 ));
+jest.mock('../DeleteGroupModal', () => ({ onClose, onConfirm }: any) => (
+  <div data-testid="delete-group-modal">
+    <button onClick={onConfirm}>Confirm Delete Group</button>
+    <button onClick={onClose}>Cancel Delete Group</button>
+  </div>
+));
 
-// Mock dnd-kit components
 jest.mock('@dnd-kit/core', () => ({
   DndContext: ({ children, onDragEnd }: any) => (
     <div data-testid="dnd-context" data-ondragend={onDragEnd ? 'true' : 'false'}>
@@ -51,36 +75,60 @@ jest.mock('@dnd-kit/sortable', () => ({
   }),
 }));
 
-// Mock window.confirm and window.alert
 globalThis.confirm = jest.fn(() => true) as any;
 globalThis.alert = jest.fn() as any;
 
 describe('StoryDragDrop Component', () => {
+  const buildScheduledGroup = (overrides: Record<string, any> = {}) => {
+    const now = new Date();
+    const future = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2, 9, 0, 0, 0);
+
+    return {
+      id: 'scheduled-1',
+      date: future,
+      time: '09:00',
+      slotStories: {
+        'slot-1': mockStories[0],
+      },
+      slotLayoutPreferences: {},
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      createdAt: future,
+      ...overrides,
+    };
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
-    (sharePointService.initializeSharePoint as jest.Mock).mockImplementation(() => {});
-    (sharePointService.getStories as jest.Mock).mockResolvedValue(mockStories.map(s => ({
+    (availableStoriesService.initializeSharePoint as jest.Mock).mockImplementation(() => {});
+    (availableStoriesService.getStories as jest.Mock).mockResolvedValue(mockStories.map(s => ({
         id: parseInt(s.id.split('-')[1]),
         title: s.title,
         description: s.description,
         imageUrl: s.imageUrl,
         linkToPost: s.linkToPost
     })));
-    (sharePointService.createStory as jest.Mock).mockResolvedValue({ data: { ID: 3 } });
-    (sharePointService.updateStory as jest.Mock).mockResolvedValue(undefined);
-    (sharePointService.deleteStory as jest.Mock).mockResolvedValue(undefined);
+    (availableStoriesService.createStory as jest.Mock).mockResolvedValue({ data: { ID: 3 } });
+    (availableStoriesService.updateStory as jest.Mock).mockResolvedValue(undefined);
+    (availableStoriesService.deleteStory as jest.Mock).mockResolvedValue(undefined);
+    (scheduleStoriesService.getScheduledGroups as jest.Mock).mockResolvedValue([]);
+    (scheduleStoriesService.createScheduledGroup as jest.Mock).mockImplementation(async (group: any) => group);
+    (scheduleStoriesService.deleteScheduledGroupByGroupId as jest.Mock).mockResolvedValue(undefined);
+    (scheduleStoriesService.rescheduleGroup as jest.Mock).mockResolvedValue(undefined);
+    (publishStoriesService.publishBoard as jest.Mock).mockResolvedValue(undefined);
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue(null);
   });
 
   it('renders loading state initially', () => {
     render(<StoryDragDrop context={mockContext as any} />);
-    expect(screen.getByText(/Loading stories from SharePoint/i)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeInTheDocument();
   });
 
   it('renders stories after loading', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     expect(screen.getByText('Test Story 1')).toBeInTheDocument();
@@ -99,7 +147,7 @@ describe('StoryDragDrop Component', () => {
 
   it('shows error when getStories fails', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    (sharePointService.getStories as jest.Mock).mockRejectedValue(new Error('Failed to load'));
+    (availableStoriesService.getStories as jest.Mock).mockRejectedValue(new Error('Failed to load'));
     
     render(<StoryDragDrop context={mockContext as any} />);
     
@@ -109,24 +157,21 @@ describe('StoryDragDrop Component', () => {
     consoleSpy.mockRestore();
   });
 
-  it('changes layout when selection changes', async () => {
+  it('does not render a layout selector control', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
-    const select = screen.getByRole('combobox');
-    fireEvent.change(select, { target: { value: 'general' } });
-    
-    expect(select).toHaveValue('general');
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
   it('opens and closes AddStoryModal', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const addButton = screen.getByText(/Add story/i);
@@ -146,39 +191,39 @@ describe('StoryDragDrop Component', () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const addButton = screen.getByText(/Add story/i);
     fireEvent.click(addButton);
     
-    const addStoryButton = screen.getByText('Add');
+    const addStoryButton = within(screen.getByTestId('add-story-modal')).getByText('Add');
     fireEvent.click(addStoryButton);
 
     await waitFor(() => {
-      expect(sharePointService.createStory).toHaveBeenCalled();
-      expect(sharePointService.getStories).toHaveBeenCalled();
+      expect(availableStoriesService.createStory).toHaveBeenCalled();
+      expect(availableStoriesService.getStories).toHaveBeenCalled();
     });
   });
 
   it('handles error when adding story fails', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    (sharePointService.createStory as jest.Mock).mockRejectedValue(new Error('Create failed'));
+    (availableStoriesService.createStory as jest.Mock).mockRejectedValue(new Error('Create failed'));
     
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const addButton = screen.getByText(/Add story/i);
     fireEvent.click(addButton);
     
-    const addStoryButton = screen.getByText('Add');
+    const addStoryButton = within(screen.getByTestId('add-story-modal')).getByText('Add');
     fireEvent.click(addStoryButton);
 
     await waitFor(() => {
-      expect(sharePointService.createStory).toHaveBeenCalled();
+      expect(availableStoriesService.createStory).toHaveBeenCalled();
     });
     
     consoleSpy.mockRestore();
@@ -188,7 +233,7 @@ describe('StoryDragDrop Component', () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const editButtons = screen.getAllByTitle('Edit story');
@@ -201,7 +246,7 @@ describe('StoryDragDrop Component', () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const editButtons = screen.getAllByTitle('Edit story');
@@ -211,7 +256,7 @@ describe('StoryDragDrop Component', () => {
     fireEvent.click(updateButton);
 
     await waitFor(() => {
-      expect(sharePointService.updateStory).toHaveBeenCalled();
+      expect(availableStoriesService.updateStory).toHaveBeenCalled();
     });
   });
 
@@ -220,21 +265,18 @@ describe('StoryDragDrop Component', () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const editButtons = screen.getAllByTitle('Edit story');
     fireEvent.click(editButtons[0]);
     
-    // Manually trigger update with invalid ID
     const updateButton = screen.getByText('Update');
     
-    // This would be called internally but we can't easily test it without exposing the handler
-    // So we'll just verify the update function was called
     fireEvent.click(updateButton);
 
     await waitFor(() => {
-      expect(sharePointService.updateStory).toHaveBeenCalled();
+      expect(availableStoriesService.updateStory).toHaveBeenCalled();
     });
   });
 
@@ -242,7 +284,7 @@ describe('StoryDragDrop Component', () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const editButtons = screen.getAllByTitle('Edit story');
@@ -252,7 +294,7 @@ describe('StoryDragDrop Component', () => {
     fireEvent.click(deleteButton);
 
     await waitFor(() => {
-      expect(sharePointService.deleteStory).toHaveBeenCalled();
+      expect(availableStoriesService.deleteStory).toHaveBeenCalled();
     });
   });
 
@@ -260,7 +302,7 @@ describe('StoryDragDrop Component', () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const editButtons = screen.getAllByTitle('Edit story');
@@ -280,20 +322,23 @@ describe('StoryDragDrop Component', () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const clearButton = screen.getByText(/Clear Board/i);
     fireEvent.click(clearButton);
     
     expect(screen.getByTestId('layout-renderer')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('Board Cleared')).toBeInTheDocument();
+    });
   });
 
   it('enters and exits scheduling mode', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const scheduleBtn = screen.getByText(/Schedule New Group/i);
@@ -312,7 +357,7 @@ describe('StoryDragDrop Component', () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const scheduleBtn = screen.getByText(/Schedule New Group/i);
@@ -321,24 +366,21 @@ describe('StoryDragDrop Component', () => {
     const dateTimeBtn = screen.getByText(/Select date & time/i);
     fireEvent.click(dateTimeBtn);
     
-    expect(screen.getByText('December 2025')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Time/i)).toBeInTheDocument();
 
-    // Find the close button by its class name
-    const closeCalendarBtn = document.querySelector('.closeCalendarBtn');
-    if (closeCalendarBtn) {
-      fireEvent.click(closeCalendarBtn);
-    }
+    const exitBtn = screen.getByText(/Exit Scheduling/i);
+    fireEvent.click(exitBtn);
     
     await waitFor(() => {
-      expect(screen.queryByText('December 2025')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/Time/i)).not.toBeInTheDocument();
     });
   });
 
-  it('schedules a story group with date selection', async () => {
+  it('shows validation when scheduling with a date but empty board', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const scheduleBtn = screen.getByText(/Schedule New Group/i);
@@ -347,30 +389,27 @@ describe('StoryDragDrop Component', () => {
     const dateTimeBtn = screen.getByText(/Select date & time/i);
     fireEvent.click(dateTimeBtn);
     
-    // Select a date
-    const dayButtons = screen.getAllByRole('button').filter(btn => btn.textContent && /^\d+$/.test(btn.textContent));
-    if (dayButtons.length > 0) {
-      fireEvent.click(dayButtons[10]); // Click day 11
-    }
+    const dayButtons = screen
+      .getAllByRole('button')
+      .filter(btn => btn.textContent && /^\d+$/.test(btn.textContent) && !btn.hasAttribute('disabled'));
+    fireEvent.click(dayButtons[0]);
 
-    // Select time
-    const timeInput = screen.getByLabelText(/Time:/i);
+    const timeInput = screen.getByLabelText(/^Time$/i);
     fireEvent.change(timeInput, { target: { value: '14:30' } });
 
-    // Schedule
     const scheduleNowBtn = screen.getByText('Schedule');
     fireEvent.click(scheduleNowBtn);
 
     await waitFor(() => {
-      expect(screen.queryByText(/Exit Scheduling/i)).not.toBeInTheDocument();
+      expect(screen.getByText('No Stories to Schedule')).toBeInTheDocument();
     });
   });
 
-  it('schedule button is disabled when no date selected', async () => {
+  it('shows validation when scheduling without selecting a date', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const scheduleBtn = screen.getByText(/Schedule New Group/i);
@@ -381,31 +420,23 @@ describe('StoryDragDrop Component', () => {
 
     const scheduleNowBtn = screen.getByText('Schedule');
     
-    // Button should be disabled when no date is selected
-    expect(scheduleNowBtn).toBeDisabled();
+    fireEvent.click(scheduleNowBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('No Date Selected')).toBeInTheDocument();
+    });
   });
 
   it('deletes a scheduled group', async () => {
+    (scheduleStoriesService.getScheduledGroups as jest.Mock).mockResolvedValueOnce([
+      buildScheduledGroup()
+    ]);
+
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
-
-    // First schedule a group
-    const scheduleBtn = screen.getByText(/Schedule New Group/i);
-    fireEvent.click(scheduleBtn);
-    
-    const dateTimeBtn = screen.getByText(/Select date & time/i);
-    fireEvent.click(dateTimeBtn);
-    
-    const dayButtons = screen.getAllByRole('button').filter(btn => btn.textContent && /^\d+$/.test(btn.textContent));
-    if (dayButtons.length > 0) {
-      fireEvent.click(dayButtons[10]);
-    }
-
-    const scheduleNowBtn = screen.getByText('Schedule');
-    fireEvent.click(scheduleNowBtn);
 
     await waitFor(() => {
       const deleteButtons = screen.getAllByTitle('Delete this scheduled group');
@@ -414,8 +445,10 @@ describe('StoryDragDrop Component', () => {
       fireEvent.click(deleteButtons[0]);
     });
 
+    fireEvent.click(screen.getByText('Confirm Delete Group'));
+
     await waitFor(() => {
-      expect(screen.queryByTitle('Delete this scheduled group')).not.toBeInTheDocument();
+      expect(scheduleStoriesService.deleteScheduledGroupByGroupId).toHaveBeenCalledWith('scheduled-1');
     });
   });
 
@@ -423,10 +456,9 @@ describe('StoryDragDrop Component', () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
-    // Schedule a group with stories
     const scheduleBtn = screen.getByText(/Schedule New Group/i);
     fireEvent.click(scheduleBtn);
     
@@ -435,91 +467,70 @@ describe('StoryDragDrop Component', () => {
     
     const dayButtons = screen.getAllByRole('button').filter(btn => btn.textContent && /^\d+$/.test(btn.textContent));
     if (dayButtons.length > 0) {
-      fireEvent.click(dayButtons[15]); // Select a different day
+      fireEvent.click(dayButtons[15]);
     }
 
     const scheduleNowBtn = screen.getByText('Schedule');
     fireEvent.click(scheduleNowBtn);
 
-    // Verify the scheduled group shows stories
     await waitFor(() => {
       const scheduledGroups = screen.queryAllByText(/Test Story/i);
-      // Should have stories displayed in the scheduled section
       expect(scheduledGroups.length).toBeGreaterThan(0);
     });
   });
 
   it('patches scheduled group to layout', async () => {
+    (scheduleStoriesService.getScheduledGroups as jest.Mock).mockResolvedValueOnce([
+      buildScheduledGroup()
+    ]);
+
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
-    // Schedule a group
-    const scheduleBtn = screen.getByText(/Schedule New Group/i);
-    fireEvent.click(scheduleBtn);
-    
-    const dateTimeBtn = screen.getByText(/Select date & time/i);
-    fireEvent.click(dateTimeBtn);
-    
-    const dayButtons = screen.getAllByRole('button').filter(btn => btn.textContent && /^\d+$/.test(btn.textContent));
-    if (dayButtons.length > 0) {
-      fireEvent.click(dayButtons[10]);
-    }
-
-    const scheduleNowBtn = screen.getByText('Schedule');
-    fireEvent.click(scheduleNowBtn);
-
     await waitFor(() => {
-      const patchButtons = screen.getAllByTitle('Load this group to layout');
+      const patchButtons = screen.getAllByTitle('Edit on main storyboard');
       expect(patchButtons.length).toBeGreaterThan(0);
       
       fireEvent.click(patchButtons[0]);
     });
+
+    expect(screen.getByText(/Save Group Edits/i)).toBeInTheDocument();
   });
 
   it('prompts layout switch when patching group with different layout', async () => {
     (globalThis.confirm as jest.Mock).mockReturnValue(true);
+    (scheduleStoriesService.getScheduledGroups as jest.Mock).mockResolvedValueOnce([
+      buildScheduledGroup({
+        id: 'scheduled-2',
+        layoutType: 'general',
+        layoutName: 'General'
+      })
+    ]);
     
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
-    // Change to different layout
-    const select = screen.getByRole('combobox');
-    fireEvent.change(select, { target: { value: 'general' } });
-
-    // Schedule a group with reporterDaily layout
-    const scheduleBtn = screen.getByText(/Schedule New Group/i);
-    fireEvent.click(scheduleBtn);
-    
-    const dateTimeBtn = screen.getByText(/Select date & time/i);
-    fireEvent.click(dateTimeBtn);
-    
-    const dayButtons = screen.getAllByRole('button').filter(btn => btn.textContent && /^\d+$/.test(btn.textContent));
-    if (dayButtons.length > 0) {
-      fireEvent.click(dayButtons[10]);
-    }
-
-    const scheduleNowBtn = screen.getByText('Schedule');
-    fireEvent.click(scheduleNowBtn);
-
     await waitFor(() => {
-      const patchButtons = screen.getAllByTitle('Load this group to layout');
+      const patchButtons = screen.getAllByTitle('Edit on main storyboard');
       if (patchButtons.length > 0) {
         fireEvent.click(patchButtons[0]);
       }
     });
+
+    expect(globalThis.confirm).toHaveBeenCalled();
   });
 
   it('filters stories based on search term', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const searchInput = screen.getByPlaceholderText(/Search stories by title/i);
@@ -529,45 +540,292 @@ describe('StoryDragDrop Component', () => {
     expect(screen.queryByText('Test Story 2')).not.toBeInTheDocument();
   });
 
-  it('filters stories by description', async () => {
+  it('does not match stories by description text', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const searchInput = screen.getByPlaceholderText(/Search stories by title/i);
     fireEvent.change(searchInput, { target: { value: 'Another test' } });
     
     expect(screen.queryByText('Test Story 1')).not.toBeInTheDocument();
-    expect(screen.getByText('Test Story 2')).toBeInTheDocument();
+    expect(screen.queryByText('Test Story 2')).not.toBeInTheDocument();
     expect(screen.queryByText('Test Story 3')).not.toBeInTheDocument();
+    expect(screen.getByText(/No stories found matching/i)).toBeInTheDocument();
   });
 
   it('shows empty state when no stories match search', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const searchInput = screen.getByPlaceholderText(/Search stories by title/i);
     fireEvent.change(searchInput, { target: { value: 'NonexistentStory' } });
     
-    expect(screen.getByText('No stories available')).toBeInTheDocument();
+    expect(screen.getByText(/No stories found matching/i)).toBeInTheDocument();
   });
 
   it('removes story from slot', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
-      expect(screen.queryByText(/Loading stories from SharePoint/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
     const removeButton = screen.getByText('Remove');
     fireEvent.click(removeButton);
     
-    // Story should be removed from slot
     expect(screen.getByTestId('layout-renderer')).toBeInTheDocument();
+  });
+
+  it('shows validation toast when publishing an empty board', async () => {
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Publish Board/i));
+
+    await waitFor(() => {
+      expect(screen.getByText('Cannot Publish Empty Board')).toBeInTheDocument();
+    });
+    expect(publishStoriesService.publishBoard).not.toHaveBeenCalled();
+  });
+
+  it('resets board to previously published state when available', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValueOnce({
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      slotStories: {
+        'slot-1': mockStories[0],
+      },
+      slotLayoutPreferences: {
+        'slot-1': 'thumbnail-text',
+      },
+    });
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Reset Board/i));
+
+    await waitFor(() => {
+      expect(screen.getByText('Board Reset to Last Published State')).toBeInTheDocument();
+    });
+  });
+
+  it('clears board when reset finds no published state', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValueOnce(null);
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Reset Board/i));
+
+    await waitFor(() => {
+      expect(screen.getByText('Board Cleared')).toBeInTheDocument();
+    });
+  });
+
+  it('shows unsupported layout toast when reset state is not connectHomepage', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValueOnce({
+      layoutType: 'general',
+      layoutName: 'General',
+      slotStories: {
+        'gen-slot-1': mockStories[0],
+      },
+      slotLayoutPreferences: {},
+    });
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Reset Board/i));
+
+    await waitFor(() => {
+      expect(screen.getByText('Layout Type Does Not Exist')).toBeInTheDocument();
+    });
+  });
+
+  it('shows reset failure toast when published board fetch fails', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    (publishStoriesService.getLiveBoard as jest.Mock).mockRejectedValueOnce(new Error('reset failed'));
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Reset Board/i));
+
+    await waitFor(() => {
+      expect(screen.getByText('Reset failed')).toBeInTheDocument();
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it('publishes successfully when board has stories after reset', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValueOnce({
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      slotStories: {
+        'slot-1': mockStories[0],
+      },
+      slotLayoutPreferences: {},
+    });
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Reset Board/i));
+    await waitFor(() => {
+      expect(screen.getByText('Board Reset to Last Published State')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Publish Board/i));
+
+    await waitFor(() => {
+      expect(publishStoriesService.publishBoard).toHaveBeenCalled();
+      expect(screen.getByText('Storyboard Published!')).toBeInTheDocument();
+    });
+  });
+
+  it('shows publish failure toast when publish request fails', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValueOnce({
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      slotStories: {
+        'slot-1': mockStories[0],
+      },
+      slotLayoutPreferences: {},
+    });
+    (publishStoriesService.publishBoard as jest.Mock).mockRejectedValueOnce(new Error('publish failed'));
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Reset Board/i));
+    await waitFor(() => {
+      expect(screen.getByText('Board Reset to Last Published State')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Publish Board/i));
+
+    await waitFor(() => {
+      expect(screen.getByText('Publish Failed')).toBeInTheDocument();
+    });
+  });
+
+  it('shows delete failure toast when deleting a scheduled group fails', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    (scheduleStoriesService.getScheduledGroups as jest.Mock).mockResolvedValueOnce([
+      buildScheduledGroup({ id: 'scheduled-delete-fail' })
+    ]);
+    (scheduleStoriesService.deleteScheduledGroupByGroupId as jest.Mock).mockRejectedValueOnce(new Error('delete failed'));
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getAllByTitle('Delete this scheduled group')[0]);
+    fireEvent.click(screen.getByText('Confirm Delete Group'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Failed')).toBeInTheDocument();
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it('does not enter group editing when user declines layout switch', async () => {
+    (globalThis.confirm as jest.Mock).mockReturnValueOnce(false);
+    (scheduleStoriesService.getScheduledGroups as jest.Mock).mockResolvedValueOnce([
+      buildScheduledGroup({
+        id: 'scheduled-decline-switch',
+        layoutType: 'general',
+        layoutName: 'General',
+      })
+    ]);
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getAllByTitle('Edit on main storyboard')[0]);
+
+    expect(globalThis.confirm).toHaveBeenCalled();
+    expect(screen.queryByText(/Save Group Edits/i)).not.toBeInTheDocument();
+  });
+
+  it('saves group edits through SharePoint when group has a SharePoint id', async () => {
+    (scheduleStoriesService.getScheduledGroups as jest.Mock).mockResolvedValueOnce([
+      buildScheduledGroup({ id: 'scheduled-sp-id', spId: 17 })
+    ]);
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getAllByTitle('Edit on main storyboard')[0]);
+    fireEvent.click(screen.getByText(/Save Group Edits/i));
+
+    await waitFor(() => {
+      expect(scheduleStoriesService.rescheduleGroup).toHaveBeenCalled();
+      expect(screen.getByText('Group Updated Successfully!')).toBeInTheDocument();
+    });
+  });
+
+  it('clears search term when clear-search button is clicked', async () => {
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    const searchInput = screen.getByPlaceholderText(/Search stories by title/i) as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: 'Story 1' } });
+    expect(searchInput.value).toBe('Story 1');
+
+    fireEvent.click(screen.getByLabelText(/Clear search/i));
+    expect(searchInput.value).toBe('');
+  });
+
+  it('shows empty available-state and disabled scheduling when no stories are loaded', async () => {
+    (availableStoriesService.getStories as jest.Mock).mockResolvedValueOnce([]);
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByText('No stories available')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Schedule New Group/i })).toBeDisabled();
   });
 });
