@@ -367,6 +367,10 @@ export const createScheduledGroup = async (
       date: fromDateKey(toDateKey(group.date)),
       time: normalizeTime(group.time),
       slotStories: { ...group.slotStories },
+      // Always an object, as {@link mapRawToRecord} returns on reload. Omitting
+      // it left the freshly created group looking like it had no card layouts,
+      // and saving an edit in that state wrote the emptiness back to the list.
+      slotLayoutPreferences: { ...(group.slotLayoutPreferences || {}) },
       layoutType: group.layoutType,
       layoutName: group.layoutName || getLayoutConfig(group.layoutType).name,
       status: group.status || DEFAULT_STATUS,

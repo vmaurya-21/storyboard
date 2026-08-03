@@ -55,9 +55,23 @@
     font-size: $fs-xs;
     cursor: pointer;
     color: $foreground;
-    
+
     &:hover {
         background: $accent;
+    }
+
+    // Reference: react-day-picker's `day_disabled: "text-muted-foreground
+    // opacity-50"` over a ghost Button, whose base carries
+    // `disabled:pointer-events-none` — so a blocked day is dimmed and drops
+    // its hover highlight rather than looking identical to a free one.
+    &:disabled {
+        color: $muted-foreground;
+        opacity: 0.5;
+        cursor: not-allowed;
+
+        &:hover {
+            background: transparent;
+        }
     }
 }
 

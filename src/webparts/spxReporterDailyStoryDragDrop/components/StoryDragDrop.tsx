@@ -24,9 +24,11 @@ import BoardSkeleton from './BoardSkeleton';
 import {
   createScheduledGroup,
   getScheduledGroups,
+  deleteScheduledGroup,
   deleteScheduledGroupByGroupId,
   rescheduleGroup,
   fromDateKey,
+  toDateKey,
 } from '../services/scheduleStoriesService';
 import { publishBoard, getLiveBoard } from '../services/publishStoriesService';
 import { IWebPartContext } from '@microsoft/sp-webpart-base';
@@ -37,6 +39,67 @@ import { ToastContainer, IToast } from './Toast';
 
 /** Most scheduled groups that may exist at once, matching the reference cap. */
 const MAX_SCHEDULED_GROUPS = 10;
+
+/**
+ * Whether a calendar day has already begun.
+ *
+ * The whole matcher the reference gives its scheduling calendar. Cells arrive
+ * as local midnight and the comparison is against the current instant rather
+ * than today's midnight, so *today is never selectable* — the earliest
+ * schedulable day is tomorrow. That is also what keeps a group from being
+ * scheduled into an hour that has already passed, since the time field itself
+ * is unvalidated.
+ *
+ * @param date - Local midnight of the day being tested.
+ * @returns `true` when the day must be disabled.
+ */
+const isDayPast = (date: Date): boolean => date < new Date();
+
+/**
+ * Orders scheduled groups soonest first, the order the service reads them in.
+ *
+ * Sorting the list rather than appending to it keeps a group created or
+ * rescheduled mid-session in its rightful place instead of at the end.
+ *
+ * The day comes from {@link toDateKey} rather than the timestamp because the
+ * two writers disagree about `date`: creating a group stores local midnight
+ * and keeps the hour in `time`, while saving an edit folds the hour into the
+ * `Date`. Reading local parts and pairing them with `time` sorts both alike.
+ */
+const byScheduledMoment = (a: ScheduledStoryGroup, b: ScheduledStoryGroup): number =>
+  `${toDateKey(a.date)}T${a.time}`.localeCompare(`${toDateKey(b.date)}T${b.time}`);
+
+/**
+ * Whether a calendar day cannot be rescheduled onto: it has already begun, or
+ * another group already holds it.
+ *
+ * Only the reschedule calendar carries the second rule, which is the split the
+ * reference draws. Scheduling a *new* group leaves taken days enabled and
+ * rejects them on confirm instead, where {@link StoryDragDrop}'s
+ * `handleScheduleNow` raises the same "Date Already Scheduled" toast the
+ * reference does; rescheduling has no confirm-time check, so its calendar is
+ * the only thing standing between two groups and the same day.
+ *
+ * Groups are compared by calendar day, so their time of day does not enter
+ * into it.
+ *
+ * @param date - Local midnight of the day being tested.
+ * @param groups - Every scheduled group currently known.
+ * @param exceptGroupId - Group to ignore, so the one being rescheduled does
+ * not block its own date.
+ * @returns `true` when the day must be disabled.
+ */
+const isDayBlocked = (
+  date: Date,
+  groups: ScheduledStoryGroup[],
+  exceptGroupId?: string | null
+): boolean => {
+  if (isDayPast(date)) return true;
+
+  return groups.some(
+    g => g.id !== exceptGroupId && g.date.toDateString() === date.toDateString()
+  );
+};
 
 /**
  * Converts a 24-hour `HH:mm` string to a padded 12-hour label.
@@ -212,6 +275,11 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
   const [isGroupEditingMode, setIsGroupEditingMode] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [originalBoardState, setOriginalBoardState] = useState<SlotStoryMap>({});
+  // Parked alongside `originalBoardState`. `slotLayoutPreferences` is one flat
+  // map keyed by slot id that the live board and every scheduled group share,
+  // so entering either mode overwrites the live board's copy — without this it
+  // never comes back, and the next publish writes the group's layouts.
+  const [originalLayoutPreferences, setOriginalLayoutPreferences] = useState<Record<string, CardLayout>>({});
   const [rescheduleDate, setRescheduleDate] = useState<string>('');
   const [rescheduleTime, setRescheduleTime] = useState<string>('09:00');
   const [showRescheduleCalendar, setShowRescheduleCalendar] = useState(false);
@@ -707,6 +775,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
    */
   const handleScheduleGroup = (): void => {
     setOriginalBoardState({ ...slotStories });
+    setOriginalLayoutPreferences({ ...slotLayoutPreferences });
 
     const clearedSlots: SlotStoryMap = {};
     Object.keys(slotStories).forEach(key => {
@@ -720,10 +789,41 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     setSelectedScheduleTime('09:00');
   };
 
-  /** Leaves scheduling mode and restores the board parked on entry. */
-  const handleExitScheduling = (): void => {
+  /**
+   * Leaves scheduling mode and restores the board and layout preferences
+   * parked on entry.
+   *
+   * Stories still sitting in the slots return to the available list: they left
+   * it when they were dropped, and abandoning the schedule means nothing has
+   * taken ownership of them.
+   *
+   * @param returnPlacedStories - Whether to hand the slots' stories back.
+   * Pass `false` from the success path, where the new group owns them and a
+   * story must live in exactly one place. Callers wired straight to an
+   * `onClick` must go through a wrapper, or the click event arrives here as
+   * a truthy first argument.
+   */
+  const handleExitScheduling = (returnPlacedStories: boolean = true): void => {
+    if (returnPlacedStories) {
+      const storiesFromBoard: IStory[] = [];
+      Object.keys(slotStories).forEach(key => {
+        const story = slotStories[key];
+        if (story) storiesFromBoard.push(story);
+      });
+
+      if (storiesFromBoard.length > 0) {
+        setAvailableStories(prev => {
+          const existingIds = new Set(prev.map(s => s.id));
+          const toAdd = storiesFromBoard.filter(s => !existingIds.has(s.id));
+          return [...toAdd, ...prev];
+        });
+      }
+    }
+
     setSlotStories({ ...originalBoardState });
     setOriginalBoardState({});
+    setSlotLayoutPreferences({ ...originalLayoutPreferences });
+    setOriginalLayoutPreferences({});
 
     setIsSchedulingMode(false);
     setShowCalendarOverlay(false);
@@ -787,8 +887,10 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
 
     createScheduledGroup(scheduledGroup)
       .then((saved) => {
-        setScheduledGroups(prev => [...prev, saved]);
-        handleExitScheduling();
+        setScheduledGroups(prev => [...prev, saved].sort(byScheduledMoment));
+        // The group now owns these stories, so they stay out of the available
+        // list until the group is deleted.
+        handleExitScheduling(false);
 
         const formattedDate = scheduleDate.toLocaleDateString('en-US', {
           weekday: 'long',
@@ -828,7 +930,15 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     const groupToRemove = scheduledGroups.find(g => g.id === groupId);
     if (!groupToRemove) return;
 
-    deleteScheduledGroupByGroupId(groupId)
+    // Delete by item id whenever the group carries one. Deleting by GroupId
+    // matches nothing for a row whose column is empty — a group read back as
+    // `sp-{id}` — and resolves quietly, which would report success here while
+    // the row survived to reappear on the next load.
+    const removal = typeof groupToRemove.spId === 'number'
+      ? deleteScheduledGroup(groupToRemove.spId)
+      : deleteScheduledGroupByGroupId(groupId);
+
+    removal
       .then(() => {
         const groupStories = Object.keys(groupToRemove.slotStories)
           .map(key => groupToRemove.slotStories[key])
@@ -879,10 +989,12 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     }
     
     setSlotStories({ ...originalBoardState });
-    
+    setSlotLayoutPreferences({ ...originalLayoutPreferences });
+
     setIsGroupEditingMode(false);
     setEditingGroupId(null);
     setOriginalBoardState({});
+    setOriginalLayoutPreferences({});
     setShowRescheduleCalendar(false);
   };
 
@@ -912,6 +1024,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     }
 
     setOriginalBoardState({ ...slotStories });
+    setOriginalLayoutPreferences({ ...slotLayoutPreferences });
 
     setSlotStories({ ...group.slotStories });
     if (group.slotLayoutPreferences) {
@@ -990,6 +1103,18 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       const min = parseInt(timeParts[1], 10);
       newDate = new Date(y, m, d, hr, min);
     }
+
+    // The reschedule calendar already disables days another group holds, so
+    // this is the backstop for a state that changed under it — the reference
+    // runs the same check at its own commit point.
+    const dateTaken = scheduledGroups.some(
+      g => g.id !== editingGroupId && g.date.toDateString() === newDate.toDateString()
+    );
+    if (dateTaken) {
+      showToast('Date Already Scheduled', 'error', "There's already a scheduled group for this date. Please choose a different date.");
+      return;
+    }
+
     const newSlotStories = { ...slotStories };
 
     const applyLocal = (): void => {
@@ -997,7 +1122,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
         g.id === editingGroupId
           ? { ...g, slotStories: newSlotStories, slotLayoutPreferences: { ...slotLayoutPreferences }, date: newDate, time: rescheduleTime }
           : g
-      ));
+      ).sort(byScheduledMoment));
       handleExitGroupEditingMode();
       const savedCount = Object.keys(newSlotStories)
         .map(k => newSlotStories[k])
@@ -1030,8 +1155,11 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
   /**
    * Accepts a new date and time for the group being edited.
    *
-   * Only closes the picker and confirms the choice — the change reaches
-   * SharePoint when the group edits are saved.
+   * Only closes the picker and holds the choice — nothing reaches the group or
+   * SharePoint until the group edits are saved, and Cancel Edits discards it.
+   * The toast says so rather than reporting a success that has not happened
+   * yet: unlike the reference, which commits the date the moment the picker is
+   * confirmed, this port carries date and arrangement to the server together.
    */
   const handleConfirmReschedule = (): void => {
     setShowRescheduleCalendar(false);
@@ -1045,7 +1173,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       day: 'numeric',
       year: 'numeric'
     });
-    showToast('Group Rescheduled Successfully!', 'success', `Group has been rescheduled to ${formattedDate}.`);
+    showToast('New Date Selected', 'info', `Group moves to ${formattedDate} at ${formatTime12(rescheduleTime)} once you save your edits.`);
   };
 
   /**
@@ -1216,20 +1344,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
                             onTimeChange={setRescheduleTime}
                             onConfirm={handleConfirmReschedule}
                             confirmText="Reschedule"
-                            isDateDisabled={(date) => {
-                              const today = new Date();
-                              today.setHours(0, 0, 0, 0);
-                              
-                              const compareDate = new Date(date);
-                              compareDate.setHours(0, 0, 0, 0);
-                              
-                              if (compareDate < today) return true;
-                              
-                              return scheduledGroups.some(g => 
-                                g.id !== editingGroupId && 
-                                g.date.toDateString() === compareDate.toDateString()
-                              );
-                            }}
+                            isDateDisabled={(date) => isDayBlocked(date, scheduledGroups, editingGroupId)}
                           />
                         </div>
                       )}
@@ -1300,26 +1415,14 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
                             onTimeChange={setSelectedScheduleTime}
                             onConfirm={handleScheduleNow}
                             confirmText="Schedule"
-                            isDateDisabled={(date) => {
-                              const today = new Date();
-                              today.setHours(0, 0, 0, 0);
-                              
-                              const compareDate = new Date(date);
-                              compareDate.setHours(0, 0, 0, 0);
-                              
-                              if (compareDate < today) return true;
-                              
-                              return scheduledGroups.some(g => 
-                                g.date.toDateString() === compareDate.toDateString()
-                              );
-                            }}
+                            isDateDisabled={isDayPast}
                           />
                         </div>
                       )}
                     </div>
                     <button
                       className={styles.schedulingBtnSmall}
-                      onClick={handleExitScheduling}
+                      onClick={() => handleExitScheduling()}
                     >
                       <span className={styles.labelFull}>Exit Scheduling</span>
                       <span className={styles.labelShort}>Exit</span>

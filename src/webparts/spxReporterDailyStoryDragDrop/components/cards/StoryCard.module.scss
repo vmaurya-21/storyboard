@@ -230,15 +230,17 @@
     flex-direction: column;
     justify-content: space-between;
 
+    // Reference: `flex gap-2 md:gap-3` — 8px below `md`, 12px above.
     .thumbRow {
         display: flex;
-        gap: 12px;
+        gap: 8px;
         flex-shrink: 0;
     }
 
+    // Reference: `mt-3`, matching the shared rule above.
     :global(.metaRow),
     .metaRow {
-        margin-top: 8px;
+        margin-top: 12px;
     }
 
     .thumb {
@@ -283,14 +285,16 @@
         flex-shrink: 0;
     }
 
+    // Reference: `line-clamp-4`. Four lines still fit the 182px medium slot
+    // beside a 112px thumbnail — the row is bounded by the text, not the image.
     .storyDescription {
         margin: 0;
         font-size: $fs-xs;
         color: $gray-600;
         line-height: 1.4;
         display: -webkit-box;
-        -webkit-line-clamp: 2;
-        line-clamp: 2;
+        -webkit-line-clamp: 4;
+        line-clamp: 4;
         -webkit-box-orient: vertical;
         overflow: hidden;
         flex-shrink: 0;
@@ -300,10 +304,15 @@
 }
 
 @media (min-width: #{$bp-md}) {
+    // Reference: `md:w-28 md:h-28`.
     .thumbnailText .thumb {
-        flex-basis: 96px;
-        width: 96px;
-        height: 96px;
+        flex-basis: 112px;
+        width: 112px;
+        height: 112px;
+    }
+
+    .thumbnailText .thumbRow {
+        gap: 12px;
     }
 }
 
@@ -352,14 +361,17 @@
         flex-shrink: 0;
     }
 
+    // Reference: `line-clamp-1` — a single preview line, not the two the
+    // thumbnail layout affords. The 136px small slot is the tightest of the
+    // three and the byline still has to fit beneath.
     .storyDescription {
         margin: 0;
         font-size: $fs-xs;
         color: $gray-600;
         line-height: 1.4 !important;
         display: -webkit-box;
-        -webkit-line-clamp: 2;
-        line-clamp: 2;
+        -webkit-line-clamp: 1;
+        line-clamp: 1;
         -webkit-box-orient: vertical;
         overflow: hidden;
         flex-shrink: 0;

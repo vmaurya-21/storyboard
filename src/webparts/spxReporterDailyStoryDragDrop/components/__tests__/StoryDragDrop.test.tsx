@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import StoryDragDrop from '../StoryDragDrop';
 import { mockStories, mockContext } from './mockData';
 import * as availableStoriesService from '../../services/availableStoriesService';
@@ -13,6 +13,7 @@ jest.mock('../../services/scheduleStoriesService', () => {
     ...actual,
     createScheduledGroup: jest.fn(),
     getScheduledGroups: jest.fn(),
+    deleteScheduledGroup: jest.fn(),
     deleteScheduledGroupByGroupId: jest.fn(),
     rescheduleGroup: jest.fn(),
   };
@@ -38,8 +39,13 @@ jest.mock('../EditStoryModal', () => ({ story, onClose, onUpdate, onDelete }: an
     <button onClick={onClose}>Close</button>
   </div>
 ));
-jest.mock('../layouts/LayoutRenderer', () => ({ onRemoveStory }: any) => (
-  <div data-testid="layout-renderer">
+// `data-slot1-layout` surfaces the shared `slotLayoutPreferences` map so tests
+// can assert the live board's copy survives a trip through the editing modes.
+jest.mock('../layouts/LayoutRenderer', () => ({ onRemoveStory, slotLayoutPreferences }: any) => (
+  <div
+    data-testid="layout-renderer"
+    data-slot1-layout={(slotLayoutPreferences || {})['slot-1'] || ''}
+  >
     <button onClick={() => onRemoveStory('slot-1')}>Remove</button>
   </div>
 ));
@@ -50,12 +56,18 @@ jest.mock('../DeleteGroupModal', () => ({ onClose, onConfirm }: any) => (
   </div>
 ));
 
+/** Latest `onDragEnd` handed to the DndContext, so tests can stage a drop. */
+let mockOnDragEnd: ((event: any) => void) | undefined;
+
 jest.mock('@dnd-kit/core', () => ({
-  DndContext: ({ children, onDragEnd }: any) => (
-    <div data-testid="dnd-context" data-ondragend={onDragEnd ? 'true' : 'false'}>
-      {children}
-    </div>
-  ),
+  DndContext: ({ children, onDragEnd }: any) => {
+    mockOnDragEnd = onDragEnd;
+    return (
+      <div data-testid="dnd-context" data-ondragend={onDragEnd ? 'true' : 'false'}>
+        {children}
+      </div>
+    );
+  },
   useSensor: jest.fn(),
   useSensors: jest.fn(() => []),
   PointerSensor: jest.fn(),
@@ -113,6 +125,7 @@ describe('StoryDragDrop Component', () => {
     (availableStoriesService.deleteStory as jest.Mock).mockResolvedValue(undefined);
     (scheduleStoriesService.getScheduledGroups as jest.Mock).mockResolvedValue([]);
     (scheduleStoriesService.createScheduledGroup as jest.Mock).mockImplementation(async (group: any) => group);
+    (scheduleStoriesService.deleteScheduledGroup as jest.Mock).mockResolvedValue(undefined);
     (scheduleStoriesService.deleteScheduledGroupByGroupId as jest.Mock).mockResolvedValue(undefined);
     (scheduleStoriesService.rescheduleGroup as jest.Mock).mockResolvedValue(undefined);
     (publishStoriesService.publishBoard as jest.Mock).mockResolvedValue(undefined);
@@ -353,6 +366,104 @@ describe('StoryDragDrop Component', () => {
     expect(screen.getByText(/Schedule New Group/i)).toBeInTheDocument();
   });
 
+  it('returns stories placed during scheduling mode to the available list on exit', async () => {
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Schedule New Group/i));
+
+    // The one SortableContext wraps the available list, so scope to it: the
+    // scheduled-group cards render the same titles.
+    const availableList = (): HTMLElement => screen.getByTestId('sortable-context');
+
+    // Drop a story into a slot: it leaves the available list.
+    act(() => {
+      mockOnDragEnd!({
+        active: {
+          id: 'story-1',
+          data: { current: { sortable: { containerId: 'available-stories' } } },
+        },
+        over: { id: 'slot-1' },
+      });
+    });
+    expect(within(availableList()).queryByText('Test Story 1')).not.toBeInTheDocument();
+
+    // Abandoning the schedule hands it back — nothing else owns it now.
+    fireEvent.click(screen.getByText(/Exit Scheduling/i));
+
+    expect(within(availableList()).getByText('Test Story 1')).toBeInTheDocument();
+  });
+
+  it('keeps scheduled stories out of the available list when scheduling succeeds', async () => {
+    (scheduleStoriesService.createScheduledGroup as jest.Mock).mockImplementation(
+      (group: any) => Promise.resolve(group)
+    );
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Schedule New Group/i));
+
+    act(() => {
+      mockOnDragEnd!({
+        active: {
+          id: 'story-1',
+          data: { current: { sortable: { containerId: 'available-stories' } } },
+        },
+        over: { id: 'slot-1' },
+      });
+    });
+
+    fireEvent.click(screen.getByText(/Select date & time/i));
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    fireEvent.click(screen.getByText(String(tomorrow.getDate()), { selector: 'button' }));
+    fireEvent.click(screen.getByText('Schedule', { selector: 'button' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Board Scheduled Successfully!')).toBeInTheDocument();
+    });
+
+    // The group owns it now, so it must not reappear in the available list —
+    // the group's own card still shows the title, hence the scoped query.
+    expect(
+      within(screen.getByTestId('sortable-context')).queryByText('Test Story 1')
+    ).not.toBeInTheDocument();
+  });
+
+  it('restores the live board layout preferences when group edits are cancelled', async () => {
+    (scheduleStoriesService.getScheduledGroups as jest.Mock).mockResolvedValueOnce([
+      buildScheduledGroup({
+        id: 'scheduled-layout-prefs',
+        slotLayoutPreferences: { 'slot-1': 'thumbnail-text' },
+      })
+    ]);
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    const board = screen.getByTestId('layout-renderer');
+    expect(board).toHaveAttribute('data-slot1-layout', '');
+
+    fireEvent.click(screen.getAllByTitle('Edit on main storyboard')[0]);
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute(
+      'data-slot1-layout',
+      'thumbnail-text'
+    );
+
+    fireEvent.click(screen.getByText(/Cancel Edits/i));
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-layout', '');
+  });
+
   it('opens and closes calendar overlay', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
@@ -450,6 +561,28 @@ describe('StoryDragDrop Component', () => {
     await waitFor(() => {
       expect(scheduleStoriesService.deleteScheduledGroupByGroupId).toHaveBeenCalledWith('scheduled-1');
     });
+  });
+
+  it('deletes a scheduled group by its SharePoint item id when it has one', async () => {
+    (scheduleStoriesService.getScheduledGroups as jest.Mock).mockResolvedValueOnce([
+      buildScheduledGroup({ id: 'scheduled-with-spid', spId: 42 })
+    ]);
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getAllByTitle('Delete this scheduled group')[0]);
+    fireEvent.click(screen.getByText('Confirm Delete Group'));
+
+    await waitFor(() => {
+      expect(scheduleStoriesService.deleteScheduledGroup).toHaveBeenCalledWith(42);
+    });
+    // The GroupId filter would match nothing for a row whose column is empty
+    // and still resolve, reporting a success that never happened.
+    expect(scheduleStoriesService.deleteScheduledGroupByGroupId).not.toHaveBeenCalled();
   });
 
   it('displays stories in scheduled groups', async () => {

@@ -18,7 +18,7 @@
   "preconfiguredEntries": [{
     "groupId": "5c03119e-3074-46fd-976b-c60198311f70", // Advanced
     "group": { "default": "Advanced" },
-    "title": { "default": "SpxReporterDailyStoryDragDrop" },
+    "title": { "default": "spx-connect-reporter-daily-storyboard" },
     "description": { "default": "Daily reporter story drag and drop web part" },
     "officeFabricIconFontName": "Page",
     "properties": {

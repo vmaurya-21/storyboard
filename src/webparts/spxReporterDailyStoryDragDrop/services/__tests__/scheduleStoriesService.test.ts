@@ -146,6 +146,7 @@ describe('scheduleStoriesService', () => {
       date: new Date(2026, 6, 30),
       time: '16:45',
       slotStories: { 'slot-1': mockStories[0] },
+      slotLayoutPreferences: { 'slot-1': 'thumbnail-text' },
       layoutType: 'connectHomepage',
     });
 
@@ -154,6 +155,31 @@ describe('scheduleStoriesService', () => {
     expect(result.spId).toBe(99);
     expect(result.time).toBe('16:45');
     expect(result.layoutType).toBe('connectHomepage');
+    // The caller holds this record until the next load, and editing the group
+    // in the meantime writes its preferences back — so they must survive here.
+    expect(result.slotLayoutPreferences).toEqual({ 'slot-1': 'thumbnail-text' });
+  });
+
+  it('returns an empty preference map when a group is created without one', async () => {
+    const add = jest.fn().mockResolvedValue({ data: { Id: 100 } });
+    const sp = {
+      web: {
+        lists: {
+          getByTitle: jest.fn().mockReturnValue({ items: { add } }),
+        },
+      },
+    } as any;
+    (availableStoriesService.getSp as jest.Mock).mockReturnValue(sp);
+
+    const result = await createScheduledGroup({
+      id: 'scheduled-100',
+      date: new Date(2026, 6, 31),
+      time: '09:00',
+      slotStories: { 'slot-1': mockStories[0] },
+      layoutType: 'connectHomepage',
+    });
+
+    expect(result.slotLayoutPreferences).toEqual({});
   });
 
   it('deletes scheduled groups by GroupId (including apostrophes)', async () => {
