@@ -88,7 +88,21 @@ export const READ_TIME_LABEL = '2 min read';
 export const formatPublishDate = (dateVal?: string | Date): string => {
   if (!dateVal) return '';
 
-  const parsed = new Date(dateVal);
+  let parsed: Date;
+  if (typeof dateVal === 'string') {
+    const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateVal.trim());
+    if (dateOnlyMatch) {
+      const year = Number(dateOnlyMatch[1]);
+      const monthIndex = Number(dateOnlyMatch[2]) - 1;
+      const day = Number(dateOnlyMatch[3]);
+      parsed = new Date(year, monthIndex, day);
+    } else {
+      parsed = new Date(dateVal);
+    }
+  } else {
+    parsed = new Date(dateVal);
+  }
+
   if (isNaN(parsed.getTime())) {
     return typeof dateVal === 'string' ? dateVal : '';
   }
