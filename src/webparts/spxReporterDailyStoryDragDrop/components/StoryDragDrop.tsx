@@ -76,6 +76,7 @@ const formatStories = (stories: IStoryItem[]): IStory[] =>
     date: story.date || new Date().toLocaleDateString(),
     created: story.created,
     source: story.source || '',
+    author: story.author || undefined,
   }));
 
 /** Props for an available-story list item row. */
@@ -141,7 +142,11 @@ const AvailableStoryItem: React.FC<AvailableStoryItemProps> = ({ story, onEdit }
               <span
                 className={`${styles.rowBadge} ${isLinkedin ? styles.rowBadgeLinkedin : styles.rowBadgeExternal}`}
               >
-                {isLinkedin ? <LinkedinIcon /> : <ExternalLinkIcon />}
+                {/* 12px, not the 10 the reference's `w-2.5` suggests: Badge's
+                    own `[&>svg]:size-3` compiles to `.badge > svg` (0,1,1),
+                    which outranks `.w-2\.5` (0,1,0) — so the icon renders at
+                    `size-3` and the `w-2.5` never applies. */}
+                {isLinkedin ? <LinkedinIcon size={12} /> : <ExternalLinkIcon size={12} />}
                 {badgeLabel}
               </span>
             )}
@@ -561,7 +566,10 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
       });
       setSlotStories(newSlotStories);
       setEditingStory(null);
-      showToast('Story deleted successfully!', 'success');
+      // Reference: `toast.success("Story deleted successfully!")` passes no
+      // duration, so sonner's own 4000ms default applies rather than the 3000
+      // the explicit calls use.
+      showToast('Story deleted successfully!', 'success', undefined, 4000);
     }).catch((err) => {
       console.error('Failed to delete story:', err);
       showToast('Failed to delete story', 'error', err.message || 'Unknown error');

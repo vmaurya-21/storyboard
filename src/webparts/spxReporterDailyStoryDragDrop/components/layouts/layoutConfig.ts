@@ -76,18 +76,28 @@ const highlightLayout: LayoutConfig = {
 
 /**
  * Connect Homepage preset: the five slots are presented as one full-width
- * carousel rather than a grid, so the grid template goes unused.
+ * carousel rather than a grid.
+ *
+ * Only the slot *ids* are read — `LayoutRenderer` hands them to `StoryCarousel`
+ * and nothing else here reaches the DOM. The carousel sizes its own slides, so
+ * `variant` is inert (it is required by `CardSlotConfig` and set to `large`
+ * only because that is the closest description of a full-bleed slide), and the
+ * grid template goes unused.
+ *
+ * Note there is no `cardLayout`: per-slide layout is an editor choice held in
+ * `slotLayoutPreferences` and persisted with the board, so a default declared
+ * here would be silently ignored.
  */
 const connectHomepageLayout: LayoutConfig = {
   id: 'connectHomepage',
   name: 'Connect Homepage',
   description: 'Full-width carousel of up to 5 stories',
   slots: [
-    { id: 'slot-1', variant: 'large', cardLayout: 'full-image' },
-    { id: 'slot-2', variant: 'large', cardLayout: 'full-image' },
-    { id: 'slot-3', variant: 'large', cardLayout: 'full-image' },
-    { id: 'slot-4', variant: 'large', cardLayout: 'full-image' },
-    { id: 'slot-5', variant: 'large', cardLayout: 'full-image' }
+    { id: 'slot-1', variant: 'large' },
+    { id: 'slot-2', variant: 'large' },
+    { id: 'slot-3', variant: 'large' },
+    { id: 'slot-4', variant: 'large' },
+    { id: 'slot-5', variant: 'large' }
   ],
   gridTemplate: {
     columns: '1fr',

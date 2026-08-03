@@ -224,4 +224,145 @@ describe('StoryCarousel', () => {
       expect(track.style.transform).toBe('translateX(-300%)');
     });
   });
+
+  // Regression: clicks used to increment without bound, so a third one pushed
+  // the track past the trailing clone to -400%, where neither wrap branch
+  // matches and the carousel showed empty space for good.
+  it('clamps at the trailing clone when clicked past the end', async () => {
+    const { container } = render(
+      <StoryCarousel slotIds={slotIds} slotStories={slotStories} />
+    );
+
+    const track = container.querySelector('.track') as HTMLDivElement;
+    const next = screen.getByLabelText('Next slide');
+    fireEvent.click(next);
+    fireEvent.click(next);
+    fireEvent.click(next);
+    fireEvent.click(next);
+
+    await waitFor(() => {
+      expect(track.style.transform).toBe('translateX(-300%)');
+    });
+
+    // Still recoverable: the pending wrap lands on the first real slide.
+    dispatchTransitionEnd(track, 'transform');
+
+    await waitFor(() => {
+      expect(track.style.transform).toBe('translateX(-100%)');
+    });
+  });
+
+  it('clamps at the leading clone when clicked past the start', async () => {
+    const { container } = render(
+      <StoryCarousel slotIds={slotIds} slotStories={slotStories} />
+    );
+
+    const track = container.querySelector('.track') as HTMLDivElement;
+    const prev = screen.getByLabelText('Previous slide');
+    fireEvent.click(prev);
+    fireEvent.click(prev);
+
+    await waitFor(() => {
+      expect(track.style.transform).toBe('translateX(-0%)');
+    });
+  });
+
+  it('advances on a left swipe and goes back on a right swipe', async () => {
+    const { container } = render(
+      <StoryCarousel slotIds={slotIds} slotStories={slotStories} />
+    );
+
+    const track = container.querySelector('.track') as HTMLDivElement;
+    const viewport = container.querySelector('.viewport') as HTMLDivElement;
+
+    fireEvent.touchStart(viewport, { touches: [{ clientX: 200 }] });
+    fireEvent.touchEnd(viewport, { changedTouches: [{ clientX: 100 }] });
+
+    await waitFor(() => {
+      expect(track.style.transform).toBe('translateX(-200%)');
+    });
+
+    fireEvent.touchStart(viewport, { touches: [{ clientX: 100 }] });
+    fireEvent.touchEnd(viewport, { changedTouches: [{ clientX: 200 }] });
+
+    await waitFor(() => {
+      expect(track.style.transform).toBe('translateX(-100%)');
+    });
+  });
+
+  it('ignores a touch that travels less than the swipe threshold', async () => {
+    const { container } = render(
+      <StoryCarousel slotIds={slotIds} slotStories={slotStories} />
+    );
+
+    const track = container.querySelector('.track') as HTMLDivElement;
+    const viewport = container.querySelector('.viewport') as HTMLDivElement;
+
+    fireEvent.touchStart(viewport, { touches: [{ clientX: 200 }] });
+    fireEvent.touchEnd(viewport, { changedTouches: [{ clientX: 180 }] });
+
+    await waitFor(() => {
+      expect(track.style.transform).toBe('translateX(-100%)');
+    });
+  });
+
+  it('navigates with the arrow keys', async () => {
+    const { container } = render(
+      <StoryCarousel slotIds={slotIds} slotStories={slotStories} />
+    );
+
+    const track = container.querySelector('.track') as HTMLDivElement;
+    const region = screen.getByRole('region');
+
+    fireEvent.keyDown(region, { key: 'ArrowRight' });
+
+    await waitFor(() => {
+      expect(track.style.transform).toBe('translateX(-200%)');
+    });
+
+    fireEvent.keyDown(region, { key: 'ArrowLeft' });
+
+    await waitFor(() => {
+      expect(track.style.transform).toBe('translateX(-100%)');
+    });
+  });
+
+  it('exposes carousel and slide semantics', () => {
+    render(<StoryCarousel slotIds={slotIds} slotStories={slotStories} />);
+
+    expect(screen.getByRole('region', { name: 'Story carousel' })).toBeInTheDocument();
+    // Two real slides; the loop clones are aria-hidden.
+    expect(screen.getAllByRole('group')).toHaveLength(2);
+    expect(screen.getByRole('group', { name: '1 of 2' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: '2 of 2' })).toBeInTheDocument();
+  });
+
+  it('renders the byline when the story has an author, and the date alone when not', () => {
+    render(
+      <StoryCarousel
+        slotIds={slotIds}
+        slotStories={{
+          'slot-1': { ...mockStories[0], author: 'Ada Lovelace' },
+          'slot-2': mockStories[1],
+        }}
+      />
+    );
+
+    expect(screen.getAllByText('Ada Lovelace').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('•').length).toBeGreaterThan(0);
+  });
+
+  it('falls back to full-image for a layout the carousel cannot render', () => {
+    render(
+      <StoryCarousel
+        slotIds={slotIds}
+        slotStories={slotStories}
+        slotLayoutPreferences={{ 'slot-1': 'text-only' }}
+      />
+    );
+
+    // The split layout is the only one with a "Read more" link, so its absence
+    // means the slide fell back to full-image rather than rendering nothing.
+    expect(screen.queryByText('Read more →')).not.toBeInTheDocument();
+  });
 });

@@ -1,7 +1,6 @@
 import * as React from 'react';
-import styles from './AddStoryModal.module.scss';
 import { ScheduledStoryGroup } from './types';
-import { formatTime12 } from './DateTimePicker';
+import AlertDialog from './AlertDialog';
 
 /** Props for {@link DeleteGroupModal}. */
 interface IDeleteGroupModalProps {
@@ -16,65 +15,39 @@ interface IDeleteGroupModalProps {
 /**
  * Confirmation dialog for removing a scheduled group.
  *
- * Names the group's date, time and story count so the editor can tell which
- * schedule they are about to discard.
+ * Names the group's date and story count so the editor can tell which schedule
+ * they are about to discard. Escape, the focus trap and the refusal to close on
+ * a backdrop click all come from {@link AlertDialog}.
  */
 const DeleteGroupModal: React.FC<IDeleteGroupModalProps> = ({ group, onClose, onConfirm }) => {
+  // Reference: `{ weekday: 'long', month: 'short', day: 'numeric' }`.
   const formattedDate = group.date.toLocaleDateString('en-US', {
     weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric'
+    month: 'short',
+    day: 'numeric'
   });
 
-  const formattedTime = formatTime12(group.time);
-
-  /**
-   * Dismisses the dialog when the backdrop itself is clicked.
-   *
-   * The target check keeps clicks inside the dialog from bubbling up and
-   * closing it.
-   *
-   * @param e - Click event from the overlay element.
-   */
-  const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>): void => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  };
+  // Reference: `groupToDelete.stories.length`. This board keeps the
+  // arrangement as a slot-to-story map, so the count is the filled slots —
+  // empty slots hold `undefined`.
+  const storyCount = Object.keys(group.slotStories).filter(
+    (slotId) => group.slotStories[slotId]
+  ).length;
 
   return (
-    <div className={styles.modalOverlay} onClick={handleOverlayClick}>
-      <div className={styles.modalContent}>
-        <div className={styles.modalHeader}>
-          <h2>Delete Scheduled Group?</h2>
-          <button className={styles.closeBtn} onClick={onClose} title="Close">
-            ×
-          </button>
-        </div>
-
-        <div className={styles.modalBody}>
-          <p className={styles.modalDescription} style={{ textAlign: 'left', marginBottom: '16px' }}>
-            Are you sure you want to delete this scheduled group?
-          </p>
-          <p className={styles.modalTip} style={{ textAlign: 'left', color: '#4b5563', marginBottom: '8px' }}>
-            This will remove the scheduled group for <strong>{formattedDate}</strong> at <strong>{formattedTime}</strong>.
-          </p>
-          <p className={styles.modalTip} style={{ textAlign: 'left', color: '#dc2626', fontWeight: 500 }}>
-            ⚠️ All stories in this group will be returned to the available stories list.
-          </p>
-        </div>
-
-        <div className={styles.modalFooter}>
-          <button className={styles.btnCancel} onClick={onClose}>
-            Cancel
-          </button>
-          <button className={styles.btnDelete} onClick={onConfirm}>
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
+    <AlertDialog
+      title="Are you sure you want to delete this scheduled group?"
+      titleId="delete-group-heading"
+      actionLabel="Yes, Delete Group"
+      onCancel={onClose}
+      onAction={onConfirm}
+    >
+      {/* Reference: the date sits in a `font-medium` span — 500, not
+          `<strong>`'s 700. */}
+      This will remove the scheduled group for{' '}
+      <span style={{ fontWeight: 500 }}>{formattedDate}</span>
+      {' '}and return all {storyCount} {storyCount === 1 ? 'story' : 'stories'} to the available list.
+    </AlertDialog>
   );
 };
 

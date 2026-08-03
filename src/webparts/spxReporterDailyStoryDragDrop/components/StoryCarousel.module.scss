@@ -7,14 +7,22 @@
     font-family: $font-family;
 }
 
+// Reference: CarouselContent is a bare `overflow-hidden` wrapper — the corner
+// radius belongs to the card inside, not to the frame, so an empty slot's
+// dashed border keeps its own rounding.
 .viewport {
     overflow: hidden;
     width: 100%;
-    border-radius: $radius-xl;
 }
 
+// The 16px gutter between slides, built the way the reference builds it:
+// `-ml-4` on the track against `pl-4` on each slide. Because the negative
+// margin widens the track by exactly the padding, a slide's `flex-basis: 100%`
+// still equals one full step — so `translateX(-pos * 100%)` stays correct.
+// A `gap` here would not: it adds to the step without adding to the percentage.
 .track {
     display: flex;
+    margin-left: -16px;
     transition: transform 0.4s ease;
 }
 
@@ -23,6 +31,8 @@
     flex: 0 0 100%;
     min-width: 0;
     height: 384px;
+    padding-left: 16px;
+    box-sizing: border-box;
 }
 
 @media (min-width: #{$bp-md}) {
@@ -170,6 +180,12 @@
 
 .splitText {
     width: 100%;
+    // Slides are a fixed height, so the text column must be allowed to shrink —
+    // `min-width` for the row layout above `md`, `min-height` for the column
+    // layout below it — and clip whatever a clamp does not catch.
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
     background: linear-gradient(135deg, $gray-900, $gray-800);
     padding: 24px;
     display: flex;
@@ -183,6 +199,17 @@
     font-weight: $fw-bold;
     color: #ffffff;
     line-height: $leading-tight;
+    // Clamped like `.title` in the full-image layout: without it a long title
+    // grows unbounded and pushes the byline and "Read more" out of the card.
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    // A title with no spaces (a pasted URL, say) has no break opportunity and
+    // would overflow sideways instead of wrapping into those two lines.
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
 
 .splitDesc {
@@ -244,6 +271,10 @@
     .splitTitle {
         font-size: 36px;
         margin-bottom: 24px;
+        // The taller slide (500px) affords a third line alongside the
+        // four-line description below.
+        -webkit-line-clamp: 3;
+        line-clamp: 3;
     }
     .splitDesc {
         font-size: $fs-base;
@@ -263,6 +294,14 @@
     }
 }
 
+// Reference: `absolute top-4 right-4 z-20 flex gap-2 opacity-0
+// group-hover:opacity-100 transition-opacity` — hover-gated at every
+// breakpoint, with `.card` standing in for the Tailwind `group`.
+//
+// There is no mobile exception on purpose. The port previously left the
+// controls at `opacity: 1` below `md` so they stayed reachable without a
+// pointer; that is a real usability difference on touch, but the reference
+// hides them at all widths and parity is the requirement here.
 .controls {
     position: absolute;
     top: 16px;
@@ -270,17 +309,12 @@
     z-index: 20;
     display: flex;
     gap: 8px;
-    opacity: 1;
+    opacity: 0;
+    transition: opacity 0.2s ease;
 }
 
-@media (min-width: #{$bp-md}) {
-    .controls {
-        opacity: 0;
-        transition: opacity 0.2s ease;
-    }
-    .card:hover .controls {
-        opacity: 1;
-    }
+.card:hover .controls {
+    opacity: 1;
 }
 
 .ctrlBtn {
@@ -307,8 +341,10 @@
     }
 }
 
+// Reference: `hover:text-red-600` — not the `$destructive` (#d4183d) the port
+// had. Red-600 is the same red the destructive buttons use.
 .ctrlRemove:hover {
-    color: $destructive;
+    color: $red-600;
 }
 
 .menu {

@@ -26,15 +26,29 @@ describe('DeleteGroupModal', () => {
   it('renders confirmation text', () => {
     render(<DeleteGroupModal group={group} onClose={jest.fn()} onConfirm={jest.fn()} />);
 
-    expect(screen.getByText('Delete Scheduled Group?')).toBeInTheDocument();
-    expect(screen.getByText(/2:30 PM/i)).toBeInTheDocument();
+    expect(
+      screen.getByText('Are you sure you want to delete this scheduled group?')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Thursday, Jul 30')).toBeInTheDocument();
+  });
+
+  it('counts only the filled slots when naming the story total', () => {
+    render(
+      <DeleteGroupModal
+        group={{ ...group, slotStories: { ...group.slotStories, 'slot-2': undefined } }}
+        onClose={jest.fn()}
+        onConfirm={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText(/return all 1 story to the available list/i)).toBeInTheDocument();
   });
 
   it('calls onConfirm when delete button is clicked', () => {
     const onConfirm = jest.fn();
     render(<DeleteGroupModal group={group} onClose={jest.fn()} onConfirm={onConfirm} />);
 
-    fireEvent.click(screen.getByText('Delete'));
+    fireEvent.click(screen.getByText('Yes, Delete Group'));
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
@@ -48,11 +62,31 @@ describe('DeleteGroupModal', () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
-  it('closes when clicking the overlay', () => {
+  // Radix `AlertDialog` ignores outside clicks by design: a destructive
+  // confirmation should not be dismissible by a stray click on the backdrop.
+  it('does not close when clicking the overlay', () => {
     const onClose = jest.fn();
     const { container } = render(<DeleteGroupModal group={group} onClose={onClose} onConfirm={jest.fn()} />);
 
     fireEvent.click(container.firstChild as HTMLElement);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('closes on Escape', () => {
+    const onClose = jest.fn();
+    render(<DeleteGroupModal group={group} onClose={onClose} onConfirm={jest.fn()} />);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('names itself for assistive tech', () => {
+    render(<DeleteGroupModal group={group} onClose={jest.fn()} onConfirm={jest.fn()} />);
+
+    expect(
+      screen.getByRole('alertdialog', {
+        name: 'Are you sure you want to delete this scheduled group?',
+      })
+    ).toBeInTheDocument();
   });
 });

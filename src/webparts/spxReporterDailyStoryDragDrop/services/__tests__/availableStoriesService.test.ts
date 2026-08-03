@@ -24,6 +24,9 @@ describe('availableStoriesService', () => {
   let mockUpdate: jest.Mock;
   let mockDelete: jest.Mock;
   let mockSelect: jest.Mock;
+  let mockExpand: jest.Mock;
+  // Terminal call of the `.select(...).expand(...)()` chain — the expand is
+  // what projects the Created By byline.
   let mockSelectInvoke: jest.Mock;
   let mockLists: jest.Mock;
   let mockListsAdd: jest.Mock;
@@ -57,7 +60,8 @@ describe('availableStoriesService', () => {
     mockGetById = jest.fn();
     mockItems = jest.fn();
     mockSelectInvoke = jest.fn();
-    mockSelect = jest.fn().mockReturnValue(mockSelectInvoke);
+    mockExpand = jest.fn().mockReturnValue(mockSelectInvoke);
+    mockSelect = jest.fn().mockReturnValue({ expand: mockExpand });
     mockAddText = jest.fn();
     mockAddDateTime = jest.fn();
     mockFields = {
@@ -196,7 +200,8 @@ describe('availableStoriesService', () => {
           Title: 'Story 1',
           description: 'Description 1',
           imageUrl: { Url: 'https://example.com/image1.jpg' },
-          linkToPost: { Url: 'https://example.com/post1' }
+          linkToPost: { Url: 'https://example.com/post1' },
+          Author: { Title: 'Ada Lovelace' }
         },
         {
           ID: 2,
@@ -220,9 +225,25 @@ describe('availableStoriesService', () => {
         linkToPost: 'https://example.com/post1',
         date: '',
         created: '',
-        source: 'external'
+        source: 'external',
+        author: 'Ada Lovelace'
       });
       expect(stories[1].imageUrl).toBe('https://example.com/image2.jpg');
+      // Created By is expanded, but an item can still come back without it.
+      expect(stories[1].author).toBe('');
+    });
+
+    it('requests the Created By byline via select and expand', async () => {
+      mockSelectInvoke.mockResolvedValue([]);
+
+      await getStories();
+
+      expect(mockSelect).toHaveBeenCalledWith(
+        expect.anything(), expect.anything(), expect.anything(), expect.anything(),
+        expect.anything(), expect.anything(), expect.anything(), expect.anything(),
+        'Author/Title'
+      );
+      expect(mockExpand).toHaveBeenCalledWith('Author');
     });
 
     it('should fetch stories successfully with URL strings', async () => {
@@ -257,7 +278,8 @@ describe('availableStoriesService', () => {
         linkToPost: '',
         date: '',
         created: '',
-        source: 'internal'
+        source: 'internal',
+        author: ''
       });
     });
 

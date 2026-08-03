@@ -31,12 +31,16 @@
     display: flex;
     flex-direction: column;
     box-shadow: $shadow-lg;
-    animation: slideUp 0.2s ease-out;
+    // Reference: `data-[state=open]:animate-in fade-in-0 zoom-in-95
+    // duration-200` — a fade and a scale from 95%, with no vertical travel.
+    // The dialog is centred, so a translate would read as a slide it does not
+    // have.
+    animation: zoomIn 0.2s ease;
 }
 
-@keyframes slideUp {
-    from { transform: translateY(8px) scale(0.98); opacity: 0; }
-    to { transform: translateY(0) scale(1); opacity: 1; }
+@keyframes zoomIn {
+    from { transform: scale(0.95); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
 }
 
 // Reference: DialogContent `p-4 md:p-8`, header `text-center sm:text-left`.
@@ -52,13 +56,92 @@
     @media (min-width: #{$bp-md}) {
         padding: 32px 32px 0;
     }
+}
 
-    h2 {
-        margin: 0;
-        font-size: $fs-lg;
-        font-weight: $fw-semibold;
-        color: $foreground;
-        line-height: 1; // reference: `leading-none`
+// Reference: DialogTitle — `text-lg leading-none font-semibold`, where
+// `text-lg` resolves to Tailwind's `--text-lg: 1.125rem`.
+//
+// Targeted by class rather than as `.modalHeader h2`: an element selector ties
+// with a host-page rule like `.someWrapper h2` on specificity, and SharePoint's
+// own stylesheet would then win or lose on source order alone.
+.modalTitle {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: $fw-semibold;
+    color: $foreground;
+    line-height: 1;
+}
+
+// Reference: AlertDialogTitle — `text-lg font-semibold`. Note the missing
+// `leading-none`: unlike DialogTitle, the line-height stays at `text-lg`'s own
+// 1.75rem. That matters here because the confirmation titles are full sentences
+// that wrap, and `leading-none` would jam the lines together.
+//
+// The right padding is not from the reference. AlertDialogContent renders no
+// close button, so its title has the full width; this port keeps the `×` (see
+// the note in EditStoryModal) and the title has to clear it.
+.alertTitle {
+    margin: 0;
+    padding-right: 24px;
+    font-size: 1.125rem;
+    font-weight: $fw-semibold;
+    color: $foreground;
+    line-height: 1.75rem;
+}
+
+// ---------------------------------------------------------------------------
+// Alert dialog layout.
+//
+// `AlertDialogContent` is `grid gap-4 rounded-lg border p-6 shadow-lg
+// sm:max-w-lg`. Two things separate it from `DialogContent`, and reusing the
+// story dialog's `.modalHeader`/`.modalBody`/`.modalFooter` got both wrong:
+//
+// 1. The padding is a flat 24px at *every* breakpoint. `DialogContent` only
+//    reaches 16/32 because App.tsx passes `p-4 md:p-8` on the className; the
+//    alert dialogs pass no padding override at all.
+// 2. The gap between the header and the footer is `gap-4` — 16px, not the 24px
+//    `.modalFooter`'s top padding supplies.
+//
+// `.modalContent` is still the shell: its 512px cap is exactly the
+// `sm:max-w-lg` the alert inherits, and the overlay's 16px padding stands in
+// for `max-w-[calc(100%-2rem)]`.
+// ---------------------------------------------------------------------------
+
+.alertHeader {
+    padding: 24px 24px 0;
+    display: block;
+    // Reference: AlertDialogHeader is `text-center sm:text-left`.
+    text-align: center;
+
+    @media (min-width: #{$bp-sm}) {
+        text-align: left;
+    }
+}
+
+// The 8px top padding is AlertDialogHeader's own `gap-2`, between the title and
+// the description.
+.alertBody {
+    padding: 8px 24px 0;
+    overflow-y: auto;
+    flex: 1;
+}
+
+// Reference: `flex flex-col-reverse gap-2 sm:flex-row sm:justify-end`.
+//
+// Below 640px the buttons stack full-width and `column-reverse` puts the
+// destructive action *above* Cancel while leaving Cancel first in the DOM — so
+// tab order still reaches the safe choice first. The port rendered a
+// right-aligned row at every width.
+.alertFooter {
+    padding: 16px 24px 24px; // 16px: the `gap-4` above. 24px: `p-6` below.
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 8px; // reference: `gap-2`
+
+    @media (min-width: #{$bp-sm}) {
+        flex-direction: row;
+        justify-content: flex-end;
+        align-items: center;
     }
 }
 
@@ -91,17 +174,20 @@
     }
 }
 
+// The reference keeps the description and the tip *inside* DialogHeader, so its
+// `mb-4 md:mb-6` falls after them — not between the title and the description.
+// This port puts them in the body instead, so the padding here stands in for
+// DialogHeader's own `gap-2` (8px) and the header->fields gap is rebuilt on
+// `.modalTip` below. The sides still carry DialogContent's `p-4 md:p-8`.
 .modalBody {
-    // Header carries the side padding; this adds only the header -> body gap
-    // (reference: DialogHeader `mb-4 md:mb-6`).
-    padding: 16px 16px 0;
+    padding: 8px 16px 0;
     overflow-y: auto;
     flex: 1;
     scrollbar-width: thin;
     scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
 
     @media (min-width: #{$bp-md}) {
-        padding: 24px 32px 0;
+        padding: 8px 32px 0;
     }
 
     &::-webkit-scrollbar {
@@ -123,7 +209,9 @@
     margin: 0 0 4px 0; // reference: DialogDescription `space-y-1`
     font-size: $fs-sm;
     color: $muted-foreground;
-    line-height: $leading-normal;
+    // Reference: `text-sm`, whose paired line-height is 1.25rem — not the 1.5
+    // the port had, which ran the description a pixel per line too tall.
+    line-height: 1.25rem;
     text-align: center;
 
     @media (min-width: #{$bp-sm}) {
@@ -131,10 +219,20 @@
     }
 }
 
+// Reference: `text-xs text-blue-600 mt-2`, the last child of DialogHeader.
+//
+// The 8px top margin is the reference's own `mt-2`; it collapses with the
+// description's 4px bottom margin to 8px, exactly as it does there (`space-y-1`
+// and `mt-2` are adjacent sibling margins).
+//
+// The bottom margin carries *two* reference gaps at once: DialogHeader's
+// `mb-4 md:mb-6` plus DialogContent's own `grid gap-4`, which sits between the
+// header and the field stack. That 16px grid gap was the piece the port missed,
+// leaving the tip 16px too close to the first field.
 .modalTip {
     font-size: $fs-xs;
-    color: #2563eb;
-    margin: 0 0 16px 0;
+    color: $blue-600;
+    margin: 8px 0 32px 0;
     line-height: 1.4;
     text-align: center;
 
@@ -143,7 +241,7 @@
     }
 
     @media (min-width: #{$bp-md}) {
-        margin-bottom: 24px;
+        margin-bottom: 40px;
     }
 }
 
@@ -155,12 +253,22 @@
         margin-bottom: 24px;
     }
 
+    // Reference: Label — `flex items-center gap-2 text-sm leading-none
+    // font-medium select-none`. The flex row puts 8px between the label text
+    // and the required asterisk, and `leading-none` keeps the label's line box
+    // at exactly its font size so the 12px below it (`space-y-3`) is the whole
+    // visual gap to the input — without it the inherited SharePoint
+    // line-height pads the label and the gap reads several pixels wider.
     label {
-        display: block;
+        display: flex;
+        align-items: center;
+        gap: 8px;
         margin-bottom: 12px;
         font-size: $fs-sm;
         font-weight: $fw-medium;
+        line-height: 1;
         color: $foreground;
+        user-select: none;
     }
 
     input,
@@ -177,14 +285,25 @@
         font-size: $fs-base;
         transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
+        // Reference: `placeholder:text-muted-foreground`, inheriting the
+        // input's own size and weight. `opacity: 1` is needed because Firefox
+        // dims placeholders by default, which would render this one lighter
+        // than the reference even with the colour matched.
         &::placeholder {
             color: $muted-foreground;
+            font-size: inherit;
+            font-weight: $fw-normal;
+            opacity: 1;
         }
 
+        // Reference: Input and Textarea are both `focus-visible:border-ring
+        // focus-visible:ring-ring/50 focus-visible:ring-1` — a *1px* ring. The
+        // 3px the port used is the Button spec (`ring-[3px]`), which belongs on
+        // the footer buttons and nowhere else.
         &:focus {
             outline: none;
             border-color: $ring;
-            box-shadow: 0 0 0 3px rgba($ring, 0.5);
+            box-shadow: 0 0 0 1px rgba($ring, 0.5);
         }
 
         @media (min-width: #{$bp-md}) {
@@ -196,8 +315,25 @@
         height: 36px; // reference: `h-9`
     }
 
+    // See `.inputError`. Nested here so it outranks the `input:focus` rule
+    // above on specificity rather than on source order.
+    input.inputError:focus,
+    textarea.inputError:focus {
+        border-color: $destructive;
+        box-shadow: 0 0 0 1px rgba($destructive, 0.2);
+    }
+
     textarea {
         resize: none; // reference: `resize-none`
+        // Reference: `field-sizing-content min-h-16` and no `rows` attribute —
+        // the box starts at 64px and grows with what is typed. The `rows={3}`
+        // this port passed took precedence over `min-height` and pinned it at
+        // ~90px, so it started too tall and never grew.
+        //
+        // Where `field-sizing` is unsupported the control falls back to the
+        // browser default of 2 rows, which is what the reference does in those
+        // browsers too — the floor below still applies.
+        field-sizing: content;
         min-height: 64px; // reference: `min-h-16`
         padding: 8px 12px; // reference: Textarea `px-3 py-2`
         line-height: $leading-normal;
@@ -205,15 +341,14 @@
 }
 
 .required {
-    color: #b91c1c;
+    color: $red-700; // reference: required asterisk is `text-red-700`
 }
 
-.optional {
-    color: $muted-foreground;
-    font-weight: $fw-normal;
-    font-size: $fs-xs;
-}
-
+// Reference: `aria-invalid:border-destructive aria-invalid:ring-destructive/20`.
+// The ring colour is all `aria-invalid` changes — the *width* still comes from
+// the base `focus-visible:ring-1`, so an untouched invalid field shows the
+// border alone and only rings once focused. That focused state is defined
+// inside `.formGroup`, which outranks a bare `.inputError:focus`.
 .inputError {
     border-color: $destructive !important;
 }
@@ -267,13 +402,42 @@
     font-weight: $fw-medium;
     cursor: pointer;
     border: none;
-    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+    // Reference: `whitespace-nowrap shrink-0` — without these, "Delete Story"
+    // wraps or compresses when the footer runs out of room.
+    white-space: nowrap;
+    flex-shrink: 0;
+    // Reference: `transition-all`, which is Tailwind's 150ms
+    // cubic-bezier(0.4, 0, 0.2, 1). Only these four properties change on these
+    // buttons, so enumerating them is equivalent to `all` without animating
+    // layout as a side effect.
+    transition: background 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+                color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+
+    // Reference: `outline-none focus-visible:border-ring
+    // focus-visible:ring-ring/50 focus-visible:ring-[3px]`. The ring is a
+    // box-shadow; `border-color` only shows on the bordered Cancel variant.
+    outline: none;
+
+    &:focus-visible {
+        border-color: $ring;
+        box-shadow: 0 0 0 3px rgba($ring, 0.5);
+    }
+
+    // Reference: `disabled:pointer-events-none disabled:opacity-50`.
+    &:disabled {
+        pointer-events: none;
+        opacity: 0.5;
+    }
 
     i {
         font-size: 16px;
     }
 }
 
+// Reference: `variant="outline"` — `border bg-background text-foreground
+// hover:bg-accent hover:text-accent-foreground`.
 .btnCancel {
     @extend %dialogBtn;
     background: $background;
@@ -282,26 +446,63 @@
 
     &:hover {
         background: $accent;
+        color: $accent-foreground;
     }
 }
 
+// Reference: default variant — `bg-primary text-primary-foreground
+// hover:bg-primary/90`. That hover is the brand colour at 90% alpha, so it
+// composites against the white dialog and comes out *lighter* (≈ #1aa3d1);
+// the shared `$primary-hover` darkens instead, so it is deliberately not used
+// here. Kept as rgba rather than the flattened hex so it tracks the backdrop
+// the way the reference does.
 .btnSave {
     @extend %dialogBtn;
     background: $primary;
     color: $primary-foreground;
 
     &:hover {
-        background: $primary-hover;
+        background: rgba($primary, 0.9);
     }
 }
 
+// The edit dialog's "Delete Story" button.
+//
+// Reference: `variant="destructive"` carrying `className="bg-red-600
+// hover:bg-red-700 text-white"`. `cn()` runs tailwind-merge, so that className
+// overrides the variant's own `bg-destructive` — the button renders red-600,
+// not `$destructive` (#d4183d). The focus ring is *not* overridden, so it stays
+// the destructive variant's `focus-visible:ring-destructive/20`.
 .btnDelete {
     @extend %dialogBtn;
-    background: $destructive;
-    color: $destructive-foreground;
+    background: $red-600;
+    color: #ffffff;
 
     &:hover {
-        background: $destructive-hover;
+        background: $red-700;
+    }
+
+    &:focus-visible {
+        border-color: $ring;
+        box-shadow: 0 0 0 3px rgba($destructive, 0.2);
+    }
+}
+
+// The confirm button inside an alert dialog. Same red as `.btnDelete`, and
+// deliberately not the same class.
+//
+// Reference: `AlertDialogAction` is `buttonVariants()` — the *default* variant
+// — carrying `className="bg-red-600 hover:bg-red-700 text-white"`. Only the
+// background is overridden, so unlike the destructive-variant button above its
+// focus ring stays the base `focus-visible:ring-ring/50 ring-[3px]`, which
+// `%dialogBtn` already supplies.
+.btnAlertAction {
+    @extend %dialogBtn;
+    background: $red-600;
+    color: #ffffff;
+
+    &:hover {
+        background: $red-700;
     }
 }
 

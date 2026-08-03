@@ -22,6 +22,16 @@ export interface IStory {
   created?: string;
   /** Origin of the post: `internal`, `linkedin` or `external`. */
   source?: string;
+  /**
+   * Byline — the display name from the story's SharePoint Created By.
+   *
+   * Optional on purpose: board states published before this field existed have
+   * no `author` key, and slides fall back to showing the date alone rather
+   * than an empty byline. Snapshotted into `BoardStateJson` alongside the rest
+   * of the story, so a published board keeps its byline even if the source
+   * story is later edited or deleted.
+   */
+  author?: string;
 }
 
 /**

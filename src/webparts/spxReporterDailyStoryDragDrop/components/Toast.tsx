@@ -62,12 +62,18 @@ const ToastItem: React.FC<IToastItemProps> = ({ toast, onClose }) => {
         <div className={styles.toastTitle}>{toast.title}</div>
         {toast.description && <div className={styles.toastDescription}>{toast.description}</div>}
       </div>
-      <button className={styles.toastCloseBtn} onClick={() => onClose(toast.id)} aria-label="Close">
-        <Icon iconName="Cancel" />
-      </button>
+      {/* No close button: the reference mounts a bare `<Toaster />` with no
+          `closeButton` prop, so sonner renders none and the toast is dismissed
+          by waiting it out. */}
     </div>
   );
 };
+
+/**
+ * How many toasts sonner shows at once before queueing the rest — its
+ * `visibleToasts` default.
+ */
+const MAX_VISIBLE_TOASTS = 3;
 
 /** Props for {@link ToastContainer}. */
 interface IToastContainerProps {
@@ -82,11 +88,18 @@ interface IToastContainerProps {
  *
  * Owns no state: the parent holds the queue and removes entries in response
  * to `onCloseToast`.
+ *
+ * Only the newest {@link MAX_VISIBLE_TOASTS} are rendered; the rest wait their
+ * turn, as they do in sonner. Because a queued toast is unmounted, its
+ * auto-dismiss timer does not start until it becomes visible — so a burst of
+ * notifications is shown in full rather than expiring off-screen.
  */
 export const ToastContainer: React.FC<IToastContainerProps> = ({ toasts, onCloseToast }) => {
+  const visible = toasts.slice(-MAX_VISIBLE_TOASTS);
+
   return (
     <div className={styles.toastContainer}>
-      {toasts.map(toast => (
+      {visible.map(toast => (
         <ToastItem key={toast.id} toast={toast} onClose={onCloseToast} />
       ))}
     </div>

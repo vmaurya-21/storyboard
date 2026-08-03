@@ -4,6 +4,7 @@ import styles from './AddStoryModal.module.scss';
 import { IStory } from './types';
 import { XIcon } from './icons';
 import { useDialogBehavior } from './useDialogBehavior';
+import AlertDialog from './AlertDialog';
 import StoryFormFields from './StoryFormFields';
 import { useStoryForm } from './useStoryForm';
 import { TITLE_MAX_LENGTH } from './storyFormValidation';
@@ -26,9 +27,7 @@ interface IEditStoryModalProps {
  * Dialog for editing or deleting an existing story.
  *
  * Mirrors `AddStoryModal`'s validation, and adds a two-step delete: the
- * destructive action opens an inline confirmation rather than firing at once.
- * Unlike the add form, blank image and link values fall back to defaults on
- * save instead of being rejected.
+ * destructive action opens a confirmation rather than firing at once.
  */
 const EditStoryModal: React.FC<IEditStoryModalProps> = ({ story, onClose, onUpdate, onDelete, showToast }) => {
   const {
@@ -53,17 +52,18 @@ const EditStoryModal: React.FC<IEditStoryModalProps> = ({ story, onClose, onUpda
     onClose();
   };
 
-  // Escape-to-close, focus trap and focus restore — the behaviour Radix gives
-  // the reference dialog for free.
-  const dialogRef = useDialogBehavior(() => handleClose());
+  // Escape-to-close, focus trap, focus restore and the body scroll lock — the
+  // behaviour Radix gives the reference dialog for free. Keyboard ownership is
+  // handed to the confirmation while it is open, so Escape there dismisses the
+  // confirmation rather than this whole dialog.
+  const dialogRef = useDialogBehavior(() => handleClose(), { enabled: !isDeleteConfirmOpen });
 
   /**
    * Submits the edits.
    *
    * Passes the original story through with the edited fields applied, so
-   * properties the form does not expose survive the round trip. A blank image
-   * or link falls back to a placeholder rather than being written empty. On
-   * failure the dialog stays open and a toast names the problem.
+   * properties the form does not expose survive the round trip. On failure the
+   * dialog stays open and a toast names the problem.
    */
   const handleSubmit = (): void => {
     if (validateForm()) {
@@ -71,8 +71,8 @@ const EditStoryModal: React.FC<IEditStoryModalProps> = ({ story, onClose, onUpda
         ...story,
         title: values.title,
         description: values.description.trim(),
-        imageUrl: values.imageUrl || 'https://www.spxdaily.com/images-bg/extra-solar-flares-patch-bg.jpg',
-        linkToPost: values.linkToPost || '#'
+        imageUrl: values.imageUrl,
+        linkToPost: values.linkToPost
       });
       handleClose();
     } else {
@@ -115,110 +115,95 @@ const EditStoryModal: React.FC<IEditStoryModalProps> = ({ story, onClose, onUpda
   };
 
   return (
-    <div className={styles.modalOverlay} onClick={handleOverlayClick}>
-      <div
-        ref={dialogRef}
-        className={styles.modalContent}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="edit-story-heading"
-      >
-        <div className={styles.modalHeader}>
-          <h2 id="edit-story-heading">Edit Story</h2>
-          <button
-            type="button"
-            className={styles.closeBtn}
-            onClick={handleClose}
-            title="Close"
-            aria-label="Close"
-          >
-            <XIcon />
-          </button>
-        </div>
-
-        <div className={styles.modalBody}>
-          <p className={styles.modalDescription}>
-            Update the story details below. Fields marked with <span className={styles.required}>*</span> are required.
-          </p>
-          <p className={styles.modalTip}>
-            💡 You can add stories from LinkedIn, external websites, or internal sources. The source will be automatically detected from the URL.
-          </p>
-
-          <StoryFormFields
-            titleId="edit-story-title"
-            descriptionId="edit-story-description"
-            imageUrlId="edit-story-image"
-            linkToPostId="edit-story-link"
-            title={values.title}
-            description={values.description}
-            imageUrl={values.imageUrl}
-            linkToPost={values.linkToPost}
-            errors={errors}
-            getFieldClass={(field) => getFieldClass(field, styles.inputError)}
-            onTitleChange={handleTitleChange}
-            onDescriptionChange={setDescription}
-            onImageUrlChange={handleImageUrlChange}
-            onLinkToPostChange={handleLinkToPostChange}
-          />
-        </div>
-
-        <div className={styles.modalFooterWithDelete}>
-          <button className={styles.btnDelete} onClick={handleDelete} title="Delete story">
-            Delete Story
-          </button>
-          <div className={styles.buttonGroup}>
-            <button className={styles.btnCancel} onClick={handleClose}>
-              Cancel
+    <>
+      <div className={styles.modalOverlay} onClick={handleOverlayClick}>
+        <div
+          ref={dialogRef}
+          className={styles.modalContent}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-story-heading"
+        >
+          <div className={styles.modalHeader}>
+            <h2 id="edit-story-heading" className={styles.modalTitle}>Edit Story</h2>
+            <button
+              type="button"
+              className={styles.closeBtn}
+              onClick={handleClose}
+              title="Close"
+              aria-label="Close"
+            >
+              <XIcon />
             </button>
-            <button className={styles.btnSave} onClick={handleSubmit}>
-              Save
+          </div>
+
+          <div className={styles.modalBody}>
+            <p className={styles.modalDescription}>
+              Update the story details below. Fields marked with <span className={styles.required}>*</span> are required.
+            </p>
+            <p className={styles.modalTip}>
+              💡 You can add stories from LinkedIn, external websites, or internal sources. The source will be automatically detected from the URL.
+            </p>
+
+            <StoryFormFields
+              titleId="edit-story-title"
+              descriptionId="edit-story-description"
+              imageUrlId="edit-story-image"
+              linkToPostId="edit-story-link"
+              title={values.title}
+              description={values.description}
+              imageUrl={values.imageUrl}
+              linkToPost={values.linkToPost}
+              errors={errors}
+              getFieldClass={(field) => getFieldClass(field, styles.inputError)}
+              onTitleChange={handleTitleChange}
+              onDescriptionChange={setDescription}
+              onImageUrlChange={handleImageUrlChange}
+              onLinkToPostChange={handleLinkToPostChange}
+            />
+          </div>
+
+          <div className={styles.modalFooterWithDelete}>
+            <button className={styles.btnDelete} onClick={handleDelete} title="Delete story">
+              Delete Story
             </button>
+            <div className={styles.buttonGroup}>
+              <button className={styles.btnCancel} onClick={handleClose}>
+                Cancel
+              </button>
+              {/* Reference: `{editingStory ? 'Update' : 'Save'}` — the edit
+                  dialog's primary action reads "Update". */}
+              <button className={styles.btnSave} onClick={handleSubmit}>
+                Update
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
+      {/* A sibling rather than a child of the overlay above, so its own focus
+          trap encloses it. Nested inside, `useDialogBehavior`'s containment
+          check treated it as outside the dialog and Shift+Tab pulled focus back
+          into the edit form behind it.
+
+          Reference: the AlertDialogAction reads "Yes, Delete Story". */}
       {isDeleteConfirmOpen && (
-        <div className={styles.modalOverlay} style={{ zIndex: 1100 }}>
-          <div className={styles.modalContent} style={{ maxWidth: '400px' }}>
-            <div className={styles.modalHeader}>
-              <h2>Delete Story?</h2>
-              <button
-                type="button"
-                className={styles.closeBtn}
-                onClick={() => setIsDeleteConfirmOpen(false)}
-                title="Close"
-                aria-label="Close"
-              >
-                <XIcon />
-              </button>
-            </div>
-            <div className={styles.modalBody}>
-              <p className={styles.modalDescription} style={{ textAlign: 'left', marginBottom: '16px' }}>
-                Are you sure you want to delete the story <strong>{story.title}</strong>?
-              </p>
-              <p className={styles.modalTip} style={{ textAlign: 'left', color: '#dc2626', fontWeight: 500 }}>
-                ⚠️ This action cannot be undone and will permanently remove this story from SharePoint.
-              </p>
-            </div>
-            <div className={styles.modalFooter}>
-              <button className={styles.btnCancel} onClick={() => setIsDeleteConfirmOpen(false)}>
-                Cancel
-              </button>
-              <button 
-                className={styles.btnDelete} 
-                onClick={() => {
-                  onDelete(story.id);
-                  setIsDeleteConfirmOpen(false);
-                  handleClose();
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
+        <AlertDialog
+          title="Are you sure you want to delete this story?"
+          titleId="delete-story-heading"
+          actionLabel="Yes, Delete Story"
+          zIndex={1100}
+          onCancel={() => setIsDeleteConfirmOpen(false)}
+          onAction={() => {
+            onDelete(story.id);
+            setIsDeleteConfirmOpen(false);
+            handleClose();
+          }}
+        >
+          This action cannot be undone. The story will be permanently removed from all locations.
+        </AlertDialog>
       )}
-    </div>
+    </>
   );
 };
 

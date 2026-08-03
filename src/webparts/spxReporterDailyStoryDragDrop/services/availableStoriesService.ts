@@ -33,6 +33,13 @@ export interface IStoryItem {
   created?: string;
   /** Origin of the post, from the list's `Source` column. */
   source?: string;
+  /**
+   * Display name of whoever added the story — SharePoint's built-in Created By.
+   *
+   * Used as the byline on carousel slides. Empty when the expand is
+   * unavailable, which callers treat as "no byline" rather than an error.
+   */
+  author?: string;
 }
 
 /**
@@ -58,6 +65,8 @@ interface ISharePointStoryItem {
   Created?: string;
   /** Origin of the post. */
   Source?: string;
+  /** Built-in Created By lookup, projected via `$expand=Author`. */
+  Author?: { Title?: string };
 }
 
 /** Title of the SharePoint list backing the available stories. */
@@ -164,8 +173,12 @@ export const getStories = async (): Promise<IStoryItem[]> => {
         "linkToPost",
         "Modified",
         "Created",
-        "Source"
-      )();
+        "Source",
+        // Created By, used as the story byline. Projecting a lookup's subfield
+        // requires the matching $expand below.
+        "Author/Title"
+      )
+      .expand("Author")();
     return items
       .map((item: ISharePointStoryItem) => {
       const imageUrl = typeof item.imageUrl === 'object' ? item.imageUrl?.Url || "" : (item.imageUrl || "");
@@ -185,6 +198,7 @@ export const getStories = async (): Promise<IStoryItem[]> => {
         date: item.Modified || "",
         created: item.Created || "",
         source: sourceCategory,
+        author: item.Author?.Title || "",
       };
     });
   } catch (error) {

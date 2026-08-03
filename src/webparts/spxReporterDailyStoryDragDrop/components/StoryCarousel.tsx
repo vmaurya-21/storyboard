@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useState, useEffect, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { Icon } from '@fluentui/react/lib/Icon';
-import { IStory } from './types';
+import { CardLayout, IStory } from './types';
 import styles from './StoryCarousel.module.scss';
 import { formatPublishDate } from './cards/storyHelpers';
 
@@ -14,14 +14,36 @@ import { formatPublishDate } from './cards/storyHelpers';
  */
 export type CarouselDisplayMode = 'full-image' | 'thumbnail-text';
 
+/**
+ * Narrows a stored card layout to one the carousel can render.
+ *
+ * `slotLayoutPreferences` is a flat map keyed by bare slot id, and the grid
+ * presets share ids `slot-1`..`slot-5` with this one — so a `text-only`
+ * preference set under another preset can reach a slide. Anything that is not
+ * `thumbnail-text` renders as `full-image`, which is also the default.
+ *
+ * @param mode - Stored preference, if any.
+ * @returns The display mode to render.
+ */
+export const toCarouselMode = (mode: CardLayout | undefined): CarouselDisplayMode =>
+  mode === 'thumbnail-text' ? 'thumbnail-text' : 'full-image';
+
+/** Minimum horizontal travel, in px, before a touch counts as a swipe. */
+const SWIPE_THRESHOLD = 40;
+
 /** Props for {@link StoryCarousel}. */
 export interface IStoryCarouselProps {
   /** Slot ids to render, in order. Each becomes one slide. */
   slotIds: string[];
   /** Board state: which story sits in which slot. */
   slotStories: { [key: string]: IStory | undefined };
-  /** Per-slot display mode overrides, keyed by slot id. */
-  slotLayoutPreferences?: { [key: string]: CarouselDisplayMode };
+  /**
+   * Per-slot card layout overrides, keyed by slot id.
+   *
+   * Typed as the full `CardLayout` because the board stores one map across
+   * every preset; {@link toCarouselMode} narrows each value on read.
+   */
+  slotLayoutPreferences?: { [key: string]: CardLayout };
   /** Called when the editor picks a different display mode for a slide. */
   onSlotLayoutChange?: (slotId: string, mode: CarouselDisplayMode) => void;
   /** Called with a slot id when the editor clears that slide. */
@@ -39,6 +61,26 @@ interface ICardContentProps {
 }
 
 /**
+ * Byline row: author and publish date, separated by a bullet.
+ *
+ * Reference: `<span>{author}</span><span>•</span><span>{date}</span>`. The
+ * author is optional here — stories added before Created By was projected, and
+ * board states published before that, carry no byline — so the separator is
+ * dropped along with it rather than leaving a stray bullet.
+ */
+const Meta: React.FC<{ story: IStory; className: string }> = ({ story, className }) => (
+  <div className={className}>
+    {story.author && (
+      <>
+        <span>{story.author}</span>
+        <span aria-hidden="true">•</span>
+      </>
+    )}
+    <span>{formatPublishDate(story.date)}</span>
+  </div>
+);
+
+/**
  * Inner content of a filled slide.
  *
  * `thumbnail-text` splits text and image side by side; `full-image` overlays
@@ -51,9 +93,7 @@ const CardContent: React.FC<ICardContentProps> = ({ story, displayMode }) => {
         <div className={styles.splitText}>
           <h3 className={styles.splitTitle}>{story.title}</h3>
           {story.description && <p className={styles.splitDesc}>{story.description}</p>}
-          <div className={styles.splitMeta}>
-            <span>{formatPublishDate(story.date)}</span>
-          </div>
+          <Meta story={story} className={styles.splitMeta} />
           <a
             href={story.linkToPost || '#'}
             className={styles.readMore}
@@ -80,9 +120,7 @@ const CardContent: React.FC<ICardContentProps> = ({ story, displayMode }) => {
       <div className={styles.content}>
         <h3 className={styles.title}>{story.title}</h3>
         {story.description && <p className={styles.desc}>{story.description}</p>}
-        <div className={styles.meta}>
-          <span>{formatPublishDate(story.date)}</span>
-        </div>
+        <Meta story={story} className={styles.meta} />
       </div>
     </div>
   );
@@ -213,6 +251,10 @@ interface ISlideProps {
   onRemove?: () => void;
   /** Whether the layout menu is offered. */
   canChangeLayout: boolean;
+  /** 1-based position of this slide, for the accessible label. */
+  index: number;
+  /** Total number of real slides, for the accessible label. */
+  total: number;
 }
 
 /**
@@ -229,12 +271,21 @@ const CarouselSlide: React.FC<ISlideProps> = ({
   onToggleMenu,
   onSelectMode,
   onRemove,
-  canChangeLayout
+  canChangeLayout,
+  index,
+  total
 }) => {
   const { setNodeRef, isOver } = useDroppable({ id: slotId });
 
   return (
-    <div ref={setNodeRef} className={`${styles.slide} ${isOver ? styles.isOver : ''}`}>
+    <div
+      ref={setNodeRef}
+      className={`${styles.slide} ${isOver ? styles.isOver : ''}`}
+      // Reference: CarouselItem is `role="group" aria-roledescription="slide"`.
+      role="group"
+      aria-roledescription="slide"
+      aria-label={`${index} of ${total}`}
+    >
       {story ? (
         <CarouselCard
           story={story}
@@ -299,6 +350,8 @@ const StoryCarousel: React.FC<IStoryCarouselProps> = ({
   const [menuOpenSlot, setMenuOpenSlot] = useState<string | null>(null);
   /** The track element, read to force a style flush before re-enabling animation. */
   const trackRef = useRef<HTMLDivElement>(null);
+  /** Clientside X of the touch that may become a swipe, or `null` when idle. */
+  const touchStartXRef = useRef<number | null>(null);
 
   // Return to the first real slide whenever the slot set changes, without
   // animating the jump.
@@ -345,11 +398,76 @@ const StoryCarousel: React.FC<IStoryCarouselProps> = ({
 
   if (count === 0) return null;
 
+  /**
+   * Moves one slide, onto a clone when stepping off either end.
+   *
+   * The clamp is what keeps a fast clicker out of trouble: the track only has
+   * positions `0..count + 1`, and those two ends are the only ones
+   * `handleTransitionEnd` knows how to wrap. Without it a second click landing
+   * while the first transition was still running pushed `pos` past the clone,
+   * translating the track into empty space with no pending event to recover
+   * it. Clamping rather than locking keeps rapid stepping responsive — the
+   * extra click is absorbed, not queued behind a 400ms animation.
+   *
+   * @param delta - `1` to advance, `-1` to go back.
+   */
+  const step = (delta: 1 | -1): void => {
+    setAnimate(true);
+    setPos(p => Math.min(count + 1, Math.max(0, p + delta)));
+  };
+
   /** Advances one slide backwards, onto the leading clone when already first. */
-  const goPrev = (): void => { setAnimate(true); setPos(p => p - 1); };
+  const goPrev = (): void => step(-1);
 
   /** Advances one slide forwards, onto the trailing clone when already last. */
-  const goNext = (): void => { setAnimate(true); setPos(p => p + 1); };
+  const goNext = (): void => step(1);
+
+  /**
+   * Arrow-key navigation.
+   *
+   * Reference: the Carousel root binds this on capture, so it works whenever
+   * focus is anywhere inside — in practice the nav buttons.
+   *
+   * @param e - Keyboard event from the carousel root.
+   */
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      goPrev();
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      goNext();
+    }
+  };
+
+  /** Records where a touch began, so `handleTouchEnd` can measure the travel. */
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>): void => {
+    touchStartXRef.current = e.touches[0].clientX;
+  };
+
+  /**
+   * Turns a horizontal drag into a slide change.
+   *
+   * The nav buttons are hidden below the `md` breakpoint, matching the
+   * reference — which can afford that because Embla handles pointer dragging
+   * for it. This is the equivalent: without it the carousel has no reachable
+   * control at all on a phone, leaving slides 2..n unreachable.
+   *
+   * Nothing is prevented or captured, so a vertical scroll that happens to
+   * start on a slide still scrolls the page.
+   *
+   * @param e - Touch event from the viewport.
+   */
+  const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>): void => {
+    const startX = touchStartXRef.current;
+    touchStartXRef.current = null;
+    if (startX === null) return;
+
+    const deltaX = e.changedTouches[0].clientX - startX;
+    if (Math.abs(deltaX) < SWIPE_THRESHOLD) return;
+
+    step(deltaX < 0 ? 1 : -1);
+  };
 
   /**
    * Completes a wrap-around once a slide transition ends.
@@ -385,7 +503,7 @@ const StoryCarousel: React.FC<IStoryCarouselProps> = ({
    * @returns The clone slide.
    */
   const renderClone = (slotId: string, key: string): JSX.Element => {
-    const mode: CarouselDisplayMode = slotLayoutPreferences[slotId] || 'full-image';
+    const mode = toCarouselMode(slotLayoutPreferences[slotId]);
     const story = slotStories[slotId];
     return (
       <div key={key} className={styles.slide} aria-hidden="true" style={{ pointerEvents: 'none' }}>
@@ -401,8 +519,22 @@ const StoryCarousel: React.FC<IStoryCarouselProps> = ({
   };
 
   return (
-    <div className={styles.carousel}>
-      <div className={styles.viewport}>
+    // Reference: the Carousel root is `role="region"
+    // aria-roledescription="carousel"` with arrow keys bound on capture. The
+    // label is added here because an unnamed region is not exposed as a
+    // landmark.
+    <div
+      className={styles.carousel}
+      role="region"
+      aria-roledescription="carousel"
+      aria-label="Story carousel"
+      onKeyDownCapture={handleKeyDown}
+    >
+      <div
+        className={styles.viewport}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         <div
           ref={trackRef}
           className={styles.track}
@@ -413,8 +545,8 @@ const StoryCarousel: React.FC<IStoryCarouselProps> = ({
           onTransitionEnd={handleTransitionEnd}
         >
           {renderClone(slotIds[count - 1], 'clone-last')}
-          {slotIds.map(slotId => {
-            const mode: CarouselDisplayMode = slotLayoutPreferences[slotId] || 'full-image';
+          {slotIds.map((slotId, i) => {
+            const mode = toCarouselMode(slotLayoutPreferences[slotId]);
             const story = slotStories[slotId];
             return (
               <CarouselSlide
@@ -422,6 +554,8 @@ const StoryCarousel: React.FC<IStoryCarouselProps> = ({
                 slotId={slotId}
                 story={story}
                 displayMode={mode}
+                index={i + 1}
+                total={count}
                 isAdminMode={isAdminMode}
                 menuOpen={menuOpenSlot === slotId}
                 onToggleMenu={() =>

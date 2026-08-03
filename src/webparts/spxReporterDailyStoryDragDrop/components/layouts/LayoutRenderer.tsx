@@ -3,7 +3,7 @@ import { Icon } from '@fluentui/react/lib/Icon';
 import { LayoutType, SlotStoryMap, CardLayout } from '../types';
 import { getLayoutConfig } from './layoutConfig';
 import CardSlot from '../cards/CardSlot';
-import StoryCarousel, { CarouselDisplayMode } from '../StoryCarousel';
+import StoryCarousel from '../StoryCarousel';
 import styles from './LayoutRenderer.module.scss';
 
 /** Props for {@link LayoutRenderer}. */
@@ -44,11 +44,14 @@ const LayoutRenderer: React.FC<ILayoutRendererProps> = ({
   if (layoutType === 'connectHomepage') {
     const slotIds = layoutConfig.slots.map(s => s.id);
     return (
+      // No casts: the carousel takes the full `CardLayout` map and narrows each
+      // value itself, and its `onSlotLayoutChange` only ever emits the two
+      // modes it can render — which `handleSlotLayoutChange` already accepts.
       <StoryCarousel
         slotIds={slotIds}
         slotStories={slotStories}
-        slotLayoutPreferences={slotLayoutPreferences as { [key: string]: CarouselDisplayMode }}
-        onSlotLayoutChange={onSlotLayoutChange as any}
+        slotLayoutPreferences={slotLayoutPreferences}
+        onSlotLayoutChange={onSlotLayoutChange}
         onRemoveStory={onRemoveStory}
         isAdminMode
       />

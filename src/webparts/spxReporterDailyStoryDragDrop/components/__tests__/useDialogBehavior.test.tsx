@@ -2,8 +2,8 @@ import * as React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useDialogBehavior } from '../useDialogBehavior';
 
-const TestDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const ref = useDialogBehavior(onClose);
+const TestDialog: React.FC<{ onClose: () => void; enabled?: boolean }> = ({ onClose, enabled }) => {
+  const ref = useDialogBehavior(onClose, { enabled });
   return (
     <div ref={ref} role="dialog" aria-modal="true">
       <button type="button">First</button>
@@ -41,5 +41,30 @@ describe('useDialogBehavior', () => {
     expect(outside).toHaveFocus();
 
     outside.remove();
+  });
+
+  it('ignores the keyboard while disabled', () => {
+    const onClose = jest.fn();
+    render(<TestDialog onClose={onClose} enabled={false} />);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // Refcounted, so a dialog that opens a nested confirmation does not unlock
+  // the page behind it when only the confirmation closes.
+  it('locks page scroll until the last dialog unmounts', () => {
+    const outer = render(<TestDialog onClose={jest.fn()} />);
+    expect(document.body.style.overflow).toBe('hidden');
+
+    const inner = render(<TestDialog onClose={jest.fn()} />);
+    expect(document.body.style.overflow).toBe('hidden');
+
+    inner.unmount();
+    expect(document.body.style.overflow).toBe('hidden');
+
+    outer.unmount();
+    expect(document.body.style.overflow).toBe('');
   });
 });

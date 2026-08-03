@@ -87,26 +87,3 @@
     overflow-wrap: break-word;
 }
 
-.toastCloseBtn {
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    padding: 4px;
-    color: #a1a1aa;
-    border-radius: 6px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: color 0.15s ease, background-color 0.15s ease;
-    align-self: flex-start;
-    margin-top: -2px;
-
-    &:hover {
-        color: #18181b;
-        background-color: #f4f4f5;
-    }
-
-    i {
-        font-size: 10px;
-    }
-}

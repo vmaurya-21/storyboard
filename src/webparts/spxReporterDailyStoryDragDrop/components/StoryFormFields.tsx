@@ -18,7 +18,14 @@ interface IStoryFormFieldsProps {
   onLinkToPostChange: (value: string) => void;
 }
 
-/** Shared input block used by Add and Edit story modals. */
+/**
+ * Shared input block used by Add and Edit story modals.
+ *
+ * A failing field carries `aria-invalid` and points `aria-describedby` at its
+ * own message, so the error reaches a screen reader rather than only showing as
+ * a red border. This mirrors the reference Input, whose styling keys off
+ * `aria-invalid` for the same reason.
+ */
 const StoryFormFields: React.FC<IStoryFormFieldsProps> = ({
   titleId,
   descriptionId,
@@ -48,20 +55,26 @@ const StoryFormFields: React.FC<IStoryFormFieldsProps> = ({
           value={title}
           onChange={(e) => onTitleChange(e.target.value)}
           className={getFieldClass('title')}
+          aria-invalid={errors.title ? 'true' : undefined}
+          aria-describedby={errors.title ? `${titleId}-error` : undefined}
         />
-        {errors.title && <span className={styles.errorMessage}>{errors.title}</span>}
+        {errors.title && (
+          <span id={`${titleId}-error`} className={styles.errorMessage}>{errors.title}</span>
+        )}
       </div>
 
       <div className={styles.formGroup}>
         <label htmlFor={descriptionId}>
           Description
         </label>
+        {/* No `rows`: the reference Textarea sizes itself from its content
+            (`field-sizing-content`) above a 64px floor, and a `rows` attribute
+            would override that. See the textarea rule in the stylesheet. */}
         <textarea
           id={descriptionId}
           placeholder="Enter story description (optional)"
           value={description}
           onChange={(e) => onDescriptionChange(e.target.value)}
-          rows={3}
         />
       </div>
 
@@ -76,8 +89,12 @@ const StoryFormFields: React.FC<IStoryFormFieldsProps> = ({
           value={imageUrl}
           onChange={(e) => onImageUrlChange(e.target.value)}
           className={getFieldClass('imageUrl')}
+          aria-invalid={errors.imageUrl ? 'true' : undefined}
+          aria-describedby={errors.imageUrl ? `${imageUrlId}-error` : undefined}
         />
-        {errors.imageUrl && <span className={styles.errorMessage}>{errors.imageUrl}</span>}
+        {errors.imageUrl && (
+          <span id={`${imageUrlId}-error`} className={styles.errorMessage}>{errors.imageUrl}</span>
+        )}
       </div>
 
       <div className={styles.formGroup}>
@@ -91,8 +108,12 @@ const StoryFormFields: React.FC<IStoryFormFieldsProps> = ({
           value={linkToPost}
           onChange={(e) => onLinkToPostChange(e.target.value)}
           className={getFieldClass('linkToPost')}
+          aria-invalid={errors.linkToPost ? 'true' : undefined}
+          aria-describedby={errors.linkToPost ? `${linkToPostId}-error` : undefined}
         />
-        {errors.linkToPost && <span className={styles.errorMessage}>{errors.linkToPost}</span>}
+        {errors.linkToPost && (
+          <span id={`${linkToPostId}-error`} className={styles.errorMessage}>{errors.linkToPost}</span>
+        )}
       </div>
     </>
   );

@@ -67,7 +67,7 @@ describe('EditStoryModal Component', () => {
     const titleInput = screen.getByLabelText(/title/i);
     await userEvent.clear(titleInput);
     
-    const saveButton = screen.getByText('Save');
+    const saveButton = screen.getByText('Update');
     fireEvent.click(saveButton);
     
     await waitFor(() => {
@@ -91,7 +91,7 @@ describe('EditStoryModal Component', () => {
     await userEvent.clear(imageInput);
     await userEvent.type(imageInput, 'not-a-valid-url');
     
-    const saveButton = screen.getByText('Save');
+    const saveButton = screen.getByText('Update');
     fireEvent.click(saveButton);
     
     await waitFor(() => {
@@ -113,7 +113,7 @@ describe('EditStoryModal Component', () => {
     await userEvent.clear(linkInput);
     await userEvent.type(linkInput, 'invalid-url');
     
-    const saveButton = screen.getByText('Save');
+    const saveButton = screen.getByText('Update');
     fireEvent.click(saveButton);
     
     await waitFor(() => {
@@ -135,7 +135,7 @@ describe('EditStoryModal Component', () => {
     await userEvent.clear(titleInput);
     await userEvent.type(titleInput, 'Updated Title');
     
-    const saveButton = screen.getByText('Save');
+    const saveButton = screen.getByText('Update');
     fireEvent.click(saveButton);
     
     await waitFor(() => {
@@ -159,7 +159,7 @@ describe('EditStoryModal Component', () => {
     );
 
     fireEvent.click(screen.getByText('Delete Story'));
-    fireEvent.click(screen.getByText('Delete'));
+    fireEvent.click(screen.getByText('Yes, Delete Story'));
 
     expect(mockOnDelete).toHaveBeenCalledWith('story-1');
     expect(mockOnClose).toHaveBeenCalled();
@@ -180,6 +180,51 @@ describe('EditStoryModal Component', () => {
     fireEvent.click(cancelButtons[cancelButtons.length - 1]);
 
     expect(mockOnDelete).not.toHaveBeenCalled();
+    expect(mockOnClose).not.toHaveBeenCalled();
+  });
+
+  // The confirmation owns the keyboard while it is open. Previously Escape was
+  // handled by the edit dialog behind it and tore down both at once.
+  it('should close only the confirmation when Escape is pressed inside it', () => {
+    render(
+      <EditStoryModal
+        story={mockStory}
+        onClose={mockOnClose}
+        onUpdate={mockOnUpdate}
+        onDelete={mockOnDelete}
+      />
+    );
+
+    fireEvent.click(screen.getByText('Delete Story'));
+    expect(screen.getByText('Are you sure you want to delete this story?')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(
+      screen.queryByText('Are you sure you want to delete this story?')
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('Edit Story')).toBeInTheDocument();
+    expect(mockOnClose).not.toHaveBeenCalled();
+    expect(mockOnDelete).not.toHaveBeenCalled();
+  });
+
+  it('should not close the confirmation when its overlay is clicked', () => {
+    render(
+      <EditStoryModal
+        story={mockStory}
+        onClose={mockOnClose}
+        onUpdate={mockOnUpdate}
+        onDelete={mockOnDelete}
+      />
+    );
+
+    fireEvent.click(screen.getByText('Delete Story'));
+    const confirmOverlay = screen
+      .getByText('Are you sure you want to delete this story?')
+      .closest('[role="alertdialog"]')?.parentElement;
+    fireEvent.click(confirmOverlay as HTMLElement);
+
+    expect(screen.getByText('Are you sure you want to delete this story?')).toBeInTheDocument();
     expect(mockOnClose).not.toHaveBeenCalled();
   });
 
@@ -228,7 +273,7 @@ describe('EditStoryModal Component', () => {
     const descInput = screen.getByLabelText(/description/i);
     await userEvent.clear(descInput);
 
-    const saveButton = screen.getByText('Save');
+    const saveButton = screen.getByText('Update');
     fireEvent.click(saveButton);
 
     await waitFor(() => {

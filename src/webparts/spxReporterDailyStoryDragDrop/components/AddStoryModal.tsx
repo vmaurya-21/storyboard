@@ -24,8 +24,8 @@ interface IAddStoryModalProps {
  * Dialog for creating a story.
  *
  * Title, image URL and post link are required; the description is optional.
- * Fields validate as they are edited and again on submit, and the form state
- * is reset whenever the dialog closes so a reopened dialog starts clean.
+ * Fields validate as they are edited and again on submit. The dialog is mounted
+ * only while open, so a reopened dialog starts clean without an explicit reset.
  */
 const AddStoryModal: React.FC<IAddStoryModalProps> = ({ onClose, onAdd, showToast }) => {
   const {
@@ -37,12 +37,10 @@ const AddStoryModal: React.FC<IAddStoryModalProps> = ({ onClose, onAdd, showToas
     handleLinkToPostChange,
     validateForm,
     getFieldClass,
-    reset,
   } = useStoryForm();
 
-  /** Clears every field and error, then dismisses the dialog. */
+  /** Dismisses the dialog. */
   const handleClose = (): void => {
-    reset();
     onClose();
   };
 
@@ -115,7 +113,7 @@ const AddStoryModal: React.FC<IAddStoryModalProps> = ({ onClose, onAdd, showToas
         aria-labelledby="add-story-heading"
       >
         <div className={styles.modalHeader}>
-          <h2 id="add-story-heading">Add New Story</h2>
+          <h2 id="add-story-heading" className={styles.modalTitle}>Add New Story</h2>
           <button
             type="button"
             className={styles.closeBtn}
