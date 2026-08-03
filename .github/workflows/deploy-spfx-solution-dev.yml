@@ -1,0 +1,54 @@
+name: Deploy Solution Connect Reporter Daily Storyboard webpart to 3L2L Development
+
+on:
+  push:
+    branches:
+      - dev
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: 3L2L-Development
+    env:
+      NodeVersion: 22.x
+      CLIMICROSOFT365_ENTRAAPPID: ${{ vars.CLIMICROSOFT365_ENTRAAPPID }}
+      CLIMICROSOFT365_TENANT: ${{ vars.CLIMICROSOFT365_TENANT }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NodeVersion }}
+          cache: npm
+
+      - name: Run npm ci
+        run: npm ci
+
+      - name: Bundle & Package (Heft)
+        run: npm run build
+
+      - name: CLI for Microsoft 365 Login
+        uses: pnp/action-cli-login@v3.1.0
+        with:
+          TENANT: ${{ env.CLIMICROSOFT365_TENANT }}
+          APP_ID: ${{ env.CLIMICROSOFT365_ENTRAAPPID }}
+
+      - name: CLI for Microsoft 365 Set Site
+        uses: pnp/action-cli-runscript@v3.0.0
+        with:
+          CLI_MICROSOFT365_SCRIPT: m365 spo set --url https://boosie.sharepoint.com/sites/app-connect-dev
+
+      - name: CLI for Microsoft 365 Deploy App
+        uses: pnp/action-cli-deploy@v5
+        with:
+          APP_FILE_PATH: sharepoint/solution/spx-connect-reporter-daily-storyboard.sppkg
+          OVERWRITE: true
+          SCOPE: sitecollection
+          SITE_COLLECTION_URL: https://boosie.sharepoint.com/sites/app-connect-dev

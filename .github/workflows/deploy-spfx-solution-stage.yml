@@ -1,0 +1,47 @@
+name: Deploy Solution Connect Reporter Daily Storyboard to Staging
+on:
+  push:
+    branches:
+      - stage
+permissions:
+  # req: Azure login for user-defined managed identity
+  id-token: write
+  # req: Azure login for user-defined managed identity
+  contents: read
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: WC-Staging
+    env:
+      NodeVersion: 22.x
+      CLIMICROSOFT365_ENTRAAPPID: ${{ vars.CLIMICROSOFT365_ENTRAAPPID }}
+      CLIMICROSOFT365_TENANT: ${{ vars.CLIMICROSOFT365_TENANT }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NodeVersion }}
+      - name: Run npm ci
+        run: npm ci
+      - name: Bundle & Package
+        run: |
+          npm run build
+      - name: CLI for Microsoft 365 Login
+        uses: pnp/action-cli-login@v3.1.0
+        with:
+          TENANT: ${{ env.CLIMICROSOFT365_TENANT }}
+          APP_ID: ${{ env.CLIMICROSOFT365_ENTRAAPPID }}
+      - name: CLI for Microsoft 365 Run Script
+        uses: pnp/action-cli-runscript@v3.0.0
+        with:
+          CLI_MICROSOFT365_SCRIPT: m365 spo set --url https://whitecasempsaemea.sharepoint.com/sites/app-connect-stage
+      - name: CLI for Microsoft 365 Deploy App
+        uses: pnp/action-cli-deploy@v5
+        with:
+          # change sppkg name to match your project
+          APP_FILE_PATH: sharepoint/solution/spx-connect-reporter-daily-storyboard.sppkg
+          OVERWRITE: true
+          SCOPE: sitecollection
+          SITE_COLLECTION_URL: https://whitecasempsaemea.sharepoint.com/sites/app-connect-stage
