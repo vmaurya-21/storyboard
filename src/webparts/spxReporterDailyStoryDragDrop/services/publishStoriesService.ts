@@ -10,7 +10,7 @@ import { IStory, LayoutType, SlotStoryMap, CardLayout } from "../components/type
 import { getLayoutConfig } from "../components/layouts/layoutConfig";
 
 /** Title of the SharePoint list holding published board snapshots. */
-export const PUBLISH_LIST_NAME = "Publish Stories";
+export const PUBLISH_LIST_NAME = "PublishedStories";
 
 const VALID_LAYOUT_TYPES: LayoutType[] = ["reporterDaily", "general", "highlight", "connectHomepage"];
 const DEFAULT_LAYOUT_TYPE: LayoutType = "connectHomepage";
@@ -66,6 +66,8 @@ export interface IPublishedBoardRecord {
 interface IRawPublishItem {
   /** List item id. */
   Id: number;
+  /** Optional alternate id key some clients/projectors return. */
+  ID?: number;
   /** Item title, used only for readability in the list view. */
   Title?: string;
   /** Publish timestamp, in ISO form. */
@@ -76,6 +78,8 @@ interface IRawPublishItem {
   BoardStateJson?: string;
   /** Lookup id of the Schedule Stories row this was published from. */
   SourceScheduleIdId?: number | null;
+  /** Fallback lookup projection shape. */
+  SourceScheduleId?: number | { Id?: number } | null;
   /** `Yes` or `No`; see {@link IS_LIVE_YES}. */
   IsLive?: string;
 }
@@ -186,16 +190,28 @@ const mapRawToRecord = (raw: IRawPublishItem): IPublishedBoardRecord | undefined
     }
   });
 
+  const sourceScheduleSpId = typeof raw.SourceScheduleIdId === "number"
+    ? raw.SourceScheduleIdId
+    : typeof raw.SourceScheduleId === "number"
+      ? raw.SourceScheduleId
+      : typeof raw.SourceScheduleId === "object" && typeof raw.SourceScheduleId?.Id === "number"
+        ? raw.SourceScheduleId.Id
+        : undefined;
+
+  const spId = typeof raw.Id === "number" ? raw.Id : raw.ID;
+  if (typeof spId !== "number") {
+    return undefined;
+  }
+
   return {
-    spId: raw.Id,
+    spId,
     publishedAt,
     layoutType,
     layoutName: state.layoutName || getLayoutConfig(layoutType).name,
     slotStories: boardStateToSlotMap(state),
     slotLayoutPreferences,
     isLive: raw.IsLive === IS_LIVE_YES,
-    sourceScheduleSpId:
-      typeof raw.SourceScheduleIdId === "number" ? raw.SourceScheduleIdId : undefined,
+    sourceScheduleSpId,
   };
 };
 

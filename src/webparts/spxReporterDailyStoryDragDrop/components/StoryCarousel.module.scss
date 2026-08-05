@@ -260,6 +260,35 @@
     display: block;
 }
 
+@media (max-width: #{$bp-md - 1px}) {
+    .splitText {
+        flex: 1 1 auto;
+        justify-content: flex-start;
+        padding: 18px;
+    }
+
+    .splitTitle {
+        margin-bottom: 12px;
+        -webkit-line-clamp: 3;
+        line-clamp: 3;
+    }
+
+    .splitDesc {
+        margin-bottom: 12px;
+        -webkit-line-clamp: 4;
+        line-clamp: 4;
+    }
+
+    .splitMeta {
+        margin-bottom: 12px;
+    }
+
+    .splitImageWrap {
+        flex: 0 0 110px;
+        min-height: 110px;
+    }
+}
+
 @media (min-width: #{$bp-md}) {
     .split {
         flex-direction: row;

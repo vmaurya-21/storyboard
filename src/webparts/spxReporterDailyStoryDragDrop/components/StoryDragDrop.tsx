@@ -688,7 +688,12 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     getLiveBoard()
       .then((published) => {
         if (!published) {
-          handleClearBoard();
+          const storiesInSlots = Object.keys(slotStories)
+            .map(key => slotStories[key])
+            .filter((s): s is IStory => s !== null);
+          setAvailableStories([...availableStories, ...storiesInSlots]);
+          setSlotStories({});
+          showToast('Board Reset', 'info', 'No previously published board state found. Board cleared.');
           return;
         }
 

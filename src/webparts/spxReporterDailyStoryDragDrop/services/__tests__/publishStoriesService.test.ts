@@ -18,7 +18,7 @@ jest.mock('../availableStoriesService', () => ({
 jest.mock('../scheduleStoriesService', () => ({
   ...jest.requireActual('../scheduleStoriesService'),
   setGroupStatus: jest.fn(),
-  SCHEDULE_LIST_NAME: 'Schedule Stories',
+  SCHEDULE_LIST_NAME: 'ScheduledStories',
 }));
 
 describe('publishStoriesService', () => {
@@ -221,7 +221,7 @@ describe('publishStoriesService', () => {
     const listsFn: any = jest.fn().mockResolvedValue([]);
     listsFn.add = addList;
     listsFn.getByTitle = jest.fn((title: string) => {
-      if (title === 'Schedule Stories') {
+      if (title === 'ScheduledStories') {
         return {
           select: jest.fn().mockReturnValue(jest.fn().mockResolvedValue({ Id: 'sched-list-id' })),
         };

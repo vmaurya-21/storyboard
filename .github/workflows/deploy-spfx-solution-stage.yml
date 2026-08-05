@@ -1,4 +1,4 @@
-name: Deploy Solution Connect Reporter Daily Storyboard to Staging
+name: Deploy Solution Connect Storyboard to Staging
 on:
   push:
     branches:
@@ -41,7 +41,7 @@ jobs:
         uses: pnp/action-cli-deploy@v5
         with:
           # change sppkg name to match your project
-          APP_FILE_PATH: sharepoint/solution/spx-connect-reporter-daily-storyboard.sppkg
+          APP_FILE_PATH: sharepoint/solution/spx-connect-storyboard.sppkg
           OVERWRITE: true
           SCOPE: sitecollection
           SITE_COLLECTION_URL: https://whitecasempsaemea.sharepoint.com/sites/app-connect-stage

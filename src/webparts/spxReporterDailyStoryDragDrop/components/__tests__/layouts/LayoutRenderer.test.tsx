@@ -40,8 +40,8 @@ describe('LayoutRenderer Component', () => {
     jest.clearAllMocks();
   });
 
-  describe('Reporter Daily Layout', () => {
-    it('should render 5 card slots for reporter daily layout', () => {
+  describe('Storyboard Layout', () => {
+    it('should render 5 card slots for storyboard layout', () => {
       const slotStories: SlotStoryMap = {};
       
       render(
@@ -102,7 +102,7 @@ describe('LayoutRenderer Component', () => {
       expect(mockOnRemoveStory).toHaveBeenCalledWith('slot-1');
     });
 
-    it('should call onRemoveStory for all reporter daily slots', () => {
+    it('should call onRemoveStory for all storyboard slots', () => {
       const slotStories: SlotStoryMap = {
         'slot-1': mockStories[0],
         'slot-2': mockStories[1],
@@ -140,7 +140,7 @@ describe('LayoutRenderer Component', () => {
       expect(mockOnRemoveStory).toHaveBeenCalledWith('slot-5');
     });
 
-    it('should render all reporter daily slots with stories', () => {
+    it('should render all storyboard slots with stories', () => {
       const slotStories: SlotStoryMap = {
         'slot-1': mockStories[0],
         'slot-2': mockStories[1],
@@ -374,7 +374,7 @@ describe('LayoutRenderer Component', () => {
       expect(screen.getAllByText('+')).toHaveLength(6);
     });
 
-    it('should switch from general to reporter daily with stories', () => {
+    it('should switch from general to storyboard with stories', () => {
       const slotStories: SlotStoryMap = {
         'gen-slot-1': mockStories[0]
       };

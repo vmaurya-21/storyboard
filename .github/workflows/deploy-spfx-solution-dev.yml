@@ -1,4 +1,4 @@
-name: Deploy Solution Connect Reporter Daily Storyboard webpart to 3L2L Development
+name: Deploy Solution Connect Storyboard webpart to 3L2L Development
 
 on:
   push:
@@ -48,7 +48,7 @@ jobs:
       - name: CLI for Microsoft 365 Deploy App
         uses: pnp/action-cli-deploy@v5
         with:
-          APP_FILE_PATH: sharepoint/solution/spx-connect-reporter-daily-storyboard.sppkg
+          APP_FILE_PATH: sharepoint/solution/spx-connect-storyboard.sppkg
           OVERWRITE: true
           SCOPE: sitecollection
           SITE_COLLECTION_URL: https://boosie.sharepoint.com/sites/app-connect-dev

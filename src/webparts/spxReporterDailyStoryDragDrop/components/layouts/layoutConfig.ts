@@ -1,14 +1,14 @@
 import { LayoutConfig, LayoutType } from '../types';
 
 /**
- * Reporter Daily preset: five slots across three columns.
+ * Storyboard preset: five slots across three columns.
  *
  * Columns one and two stack two slots each; column three holds a single
  * full-height slot spanning both rows.
  */
 const reporterDailyLayout: LayoutConfig = {
   id: 'reporterDaily',
-  name: 'Reporter Daily Site',
+  name: 'Storyboard Site',
   description: 'Mixed layout with different slot sizes',
   slots: [
     { id: 'slot-1', variant: 'medium', cardLayout: 'full-image', gridArea: 'col1-top' },

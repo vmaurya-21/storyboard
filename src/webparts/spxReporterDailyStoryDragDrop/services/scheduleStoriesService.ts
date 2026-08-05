@@ -9,7 +9,7 @@ import { IStory, LayoutType, SlotStoryMap, CardLayout } from "../components/type
 import { getLayoutConfig } from "../components/layouts/layoutConfig";
 
 /** Title of the SharePoint list holding scheduled groups. */
-export const SCHEDULE_LIST_NAME = "Schedule Stories";
+export const SCHEDULE_LIST_NAME = "ScheduledStories";
 
 /** Most scheduled groups that may exist at once. */
 export const MAX_SCHEDULED_GROUPS = 10;
@@ -85,6 +85,8 @@ export interface INewScheduledGroup {
 interface IRawScheduleItem {
   /** List item id. */
   Id: number;
+  /** Optional alternate id key some clients/projectors return. */
+  ID?: number;
   /** Item title, used only for readability in the list view. */
   Title?: string;
   /** App-side group id. */
@@ -244,9 +246,14 @@ const boardStateToSlotMap = (state: IBoardStateJson): SlotStoryMap => {
  * whole load.
  */
 const mapRawToRecord = (raw: IRawScheduleItem): IScheduledGroupRecord | undefined => {
+  const spId = typeof raw.Id === "number" ? raw.Id : raw.ID;
+  if (typeof spId !== "number") {
+    return undefined;
+  }
+
   const state = parseBoardState(raw.BoardStateJson);
   if (!state) {
-    console.warn(`Schedule Stories: skipping item ${raw.Id} — unreadable BoardStateJson.`);
+    console.warn(`Schedule Stories: skipping item ${spId} — unreadable BoardStateJson.`);
     return undefined;
   }
 
@@ -261,7 +268,7 @@ const mapRawToRecord = (raw: IRawScheduleItem): IScheduledGroupRecord | undefine
     (raw.ScheduledDateTime ? toDateKey(new Date(raw.ScheduledDateTime)) : "");
 
   if (!dateKey) {
-    console.warn(`Schedule Stories: skipping item ${raw.Id} — no resolvable date.`);
+    console.warn(`Schedule Stories: skipping item ${spId} — no resolvable date.`);
     return undefined;
   }
 
@@ -279,8 +286,8 @@ const mapRawToRecord = (raw: IRawScheduleItem): IScheduledGroupRecord | undefine
   });
 
   return {
-    id: raw.GroupId || `sp-${raw.Id}`,
-    spId: raw.Id,
+    id: raw.GroupId || `sp-${spId}`,
+    spId,
     date: fromDateKey(dateKey),
     time: normalizeTime(state.time),
     slotStories: boardStateToSlotMap(state),
@@ -360,10 +367,14 @@ export const createScheduledGroup = async (
     const result = await sp.web.lists.getByTitle(SCHEDULE_LIST_NAME).items.add(payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = result.data;
+    const createdSpId = typeof data.Id === "number" ? data.Id : data.ID;
+    if (typeof createdSpId !== "number") {
+      throw new Error("Schedule Stories: create did not return a SharePoint item id.");
+    }
 
     return {
       id: group.id,
-      spId: data.Id,
+      spId: createdSpId,
       date: fromDateKey(toDateKey(group.date)),
       time: normalizeTime(group.time),
       slotStories: { ...group.slotStories },

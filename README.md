@@ -1,4 +1,4 @@
-# spx-reporter-daily-storydragdrop
+# spx-connect-storyboard
 
 ## Summary
 

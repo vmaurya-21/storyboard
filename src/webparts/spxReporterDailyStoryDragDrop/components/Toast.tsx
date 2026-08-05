@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { useEffect } from 'react';
-import { Icon } from '@fluentui/react/lib/Icon';
 import styles from './Toast.module.scss';
 
 /** A queued notification. */
@@ -40,23 +39,24 @@ const ToastItem: React.FC<IToastItemProps> = ({ toast, onClose }) => {
   }, [toast.id, toast.duration, onClose]);
 
   /**
-   * Maps the toast severity to its Fluent icon name.
+   * Maps the toast severity to a simple glyph.
    *
-   * @returns The `iconName` for the leading icon.
+   * We deliberately avoid Fluent glyphs here, because some of them include
+   * built-in circular outlines that clash with the fixed black icon badge.
    */
-  const getIconName = (): string => {
+  const getIconGlyph = (): string => {
     switch (toast.type) {
-      case 'success': return 'Completed';
-      case 'error': return 'ErrorBadge';
-      case 'info': return 'Info';
-      default: return 'Info';
+      case 'success': return '✓';
+      case 'error': return '!';
+      case 'info': return 'i';
+      default: return 'i';
     }
   };
 
   return (
-    <div className={`${styles.toast} ${styles[toast.type]}`} role="alert">
+    <div className={styles.toast} role="alert">
       <div className={styles.toastIcon}>
-        <Icon iconName={getIconName()} />
+        <span aria-hidden="true">{getIconGlyph()}</span>
       </div>
       <div className={styles.toastContent}>
         <div className={styles.toastTitle}>{toast.title}</div>

@@ -12,7 +12,7 @@ import { IWebPartContext } from '@microsoft/sp-webpart-base';
 import { spfi } from '@pnp/sp';
 
 
-const LIST_NAME = 'Available Stories';
+const LIST_NAME = 'AvailableStories';
 
 describe('availableStoriesService', () => {
   let mockContext: IWebPartContext;
@@ -155,10 +155,10 @@ describe('availableStoriesService', () => {
       expect(mockGetByTitle).toHaveBeenCalledWith(LIST_NAME);
       expect(mockAdd).toHaveBeenCalledWith({
         Title: mockStory.title,
-        description: mockStory.description,
+        Description: mockStory.description,
         Source: 'external',
-        imageUrl: { Url: mockStory.imageUrl },
-        linkToPost: { Url: mockStory.linkToPost }
+        ImageUrl: { Url: mockStory.imageUrl },
+        LinkToPost: { Url: mockStory.linkToPost }
       });
       expect(result).toEqual(mockAddResult);
     });
@@ -175,9 +175,9 @@ describe('availableStoriesService', () => {
 
       expect(mockAdd).toHaveBeenCalledWith({
         Title: storyWithoutOptionals.title,
-        description: '',
+        Description: '',
         Source: 'internal',
-        imageUrl: { Url: storyWithoutOptionals.imageUrl }
+        ImageUrl: { Url: storyWithoutOptionals.imageUrl }
       });
     });
 
@@ -328,10 +328,10 @@ describe('availableStoriesService', () => {
       expect(mockGetById).toHaveBeenCalledWith(1);
       expect(mockUpdate).toHaveBeenCalledWith({
         Title: mockStory.title,
-        description: mockStory.description,
+        Description: mockStory.description,
         Source: 'external',
-        imageUrl: { Url: mockStory.imageUrl },
-        linkToPost: { Url: mockStory.linkToPost }
+        ImageUrl: { Url: mockStory.imageUrl },
+        LinkToPost: { Url: mockStory.linkToPost }
       });
     });
 
@@ -347,9 +347,9 @@ describe('availableStoriesService', () => {
 
       expect(mockUpdate).toHaveBeenCalledWith({
         Title: storyWithoutOptionals.title,
-        description: '',
+        Description: '',
         Source: 'internal',
-        imageUrl: { Url: storyWithoutOptionals.imageUrl }
+        ImageUrl: { Url: storyWithoutOptionals.imageUrl }
       });
     });
 

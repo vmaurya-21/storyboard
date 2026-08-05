@@ -303,6 +303,14 @@
     }
 }
 
+@media (max-width: #{$bp-md - 1px}) {
+    .thumbnailText .thumb {
+        flex-basis: 68px;
+        width: 68px;
+        height: 68px;
+    }
+}
+
 @media (min-width: #{$bp-md}) {
     // Reference: `md:w-28 md:h-28`.
     .thumbnailText .thumb {

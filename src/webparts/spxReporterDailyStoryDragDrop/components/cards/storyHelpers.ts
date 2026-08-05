@@ -12,7 +12,7 @@ export interface IStorySourceInfo {
 /**
  * Classifies a story's post link as internal, LinkedIn or external.
  *
- * The rules mirror the Reporter Daily reference:
+ * The rules mirror the storyboard reference:
  *
  * - any `*.linkedin.com` host is `linkedin`, reported with the canonical
  *   domain `linkedin.com` rather than the subdomain;

@@ -767,7 +767,8 @@ describe('StoryDragDrop Component', () => {
     fireEvent.click(screen.getByText(/Reset Board/i));
 
     await waitFor(() => {
-      expect(screen.getByText('Board Cleared')).toBeInTheDocument();
+      expect(screen.getByText('Board Reset')).toBeInTheDocument();
+      expect(screen.getByText('No previously published board state found. Board cleared.')).toBeInTheDocument();
     });
   });
 

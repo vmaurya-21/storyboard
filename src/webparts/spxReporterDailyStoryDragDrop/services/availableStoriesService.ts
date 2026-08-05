@@ -54,10 +54,13 @@ interface ISharePointStoryItem {
   /** Headline. */
   Title: string;
   /** Optional summary body. */
+  Description?: string;
   description?: string;
   /** Image hyperlink, as an object or a plain URL string. */
+  ImageUrl?: { Url: string } | string;
   imageUrl?: { Url: string } | string;
   /** Post hyperlink, as an object or a plain URL string. */
+  LinkToPost?: { Url: string } | string;
   linkToPost?: { Url: string } | string;
   /** Last-modified timestamp, surfaced as the display date. */
   Modified?: string;
@@ -70,7 +73,7 @@ interface ISharePointStoryItem {
 }
 
 /** Title of the SharePoint list backing the available stories. */
-const LIST_NAME = "Available Stories";
+const LIST_NAME = "AvailableStories";
 
 /**
  * Auto-detect a source category string ('internal' | 'external' | 'linkedin') from a post URL.
@@ -137,16 +140,16 @@ export const createStory = async (story: IStoryItem): Promise<IItemAddResult> =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const payload: any = {
       Title: story.title,
-      description: story.description || "",
+      Description: story.description || "",
     };
 
     payload.Source = deriveSourceFromUrl(story.linkToPost);
 
     if (story.imageUrl) {
-      payload.imageUrl = { Url: story.imageUrl };
+      payload.ImageUrl = { Url: story.imageUrl };
     }
     if (story.linkToPost) {
-      payload.linkToPost = { Url: story.linkToPost };
+      payload.LinkToPost = { Url: story.linkToPost };
     }
 
     const result = await client.web.lists.getByTitle(LIST_NAME).items.add(payload);
@@ -168,9 +171,9 @@ export const getStories = async (): Promise<IStoryItem[]> => {
       .items.select(
         "ID",
         "Title",
-        "description",
-        "imageUrl",
-        "linkToPost",
+        "Description",
+        "ImageUrl",
+        "LinkToPost",
         "Modified",
         "Created",
         "Source",
@@ -181,8 +184,10 @@ export const getStories = async (): Promise<IStoryItem[]> => {
       .expand("Author")();
     return items
       .map((item: ISharePointStoryItem) => {
-      const imageUrl = typeof item.imageUrl === 'object' ? item.imageUrl?.Url || "" : (item.imageUrl || "");
-      const linkToPost = typeof item.linkToPost === 'object' ? item.linkToPost?.Url || "" : (item.linkToPost || "");
+      const itemImage = item.ImageUrl ?? item.imageUrl;
+      const itemLink = item.LinkToPost ?? item.linkToPost;
+      const imageUrl = typeof itemImage === 'object' ? itemImage?.Url || "" : (itemImage || "");
+      const linkToPost = typeof itemLink === 'object' ? itemLink?.Url || "" : (itemLink || "");
       
       const rawSource = typeof item.Source === 'string' ? item.Source.trim().toLowerCase() : '';
       const sourceCategory = (rawSource === 'linkedin' || rawSource === 'external' || rawSource === 'internal')
@@ -192,7 +197,7 @@ export const getStories = async (): Promise<IStoryItem[]> => {
       return {
         id: item.ID,
         title: item.Title,
-        description: item.description || "",
+        description: item.Description ?? item.description ?? "",
         imageUrl: imageUrl,
         linkToPost: linkToPost,
         date: item.Modified || "",
@@ -216,16 +221,16 @@ export const updateStory = async (id: number, story: IStoryItem): Promise<void> 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const payload: any = {
       Title: story.title,
-      description: story.description || "",
+      Description: story.description || "",
     };
 
     payload.Source = deriveSourceFromUrl(story.linkToPost);
 
     if (story.imageUrl) {
-      payload.imageUrl = { Url: story.imageUrl };
+      payload.ImageUrl = { Url: story.imageUrl };
     }
     if (story.linkToPost) {
-      payload.linkToPost = { Url: story.linkToPost };
+      payload.LinkToPost = { Url: story.linkToPost };
     }
 
     await client.web.lists.getByTitle(LIST_NAME).items.getById(id).update(payload);

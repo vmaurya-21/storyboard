@@ -1,6 +1,6 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "name": "SPX Reporter Daily Storyboard",
+  "name": "SPX Connect Storyboard",
   "entryPoints": ["src/webparts/spxReporterDailyStoryDragDrop"],
   "entryPointStrategy": "expand",
   "tsconfig": "./tsconfig.json",

@@ -29,7 +29,7 @@ export interface ISpxReporterDailyStoryDragDropWebPartProps {
 }
 
 /**
- * SPFx entry point for the Reporter Daily storyboard.
+ * SPFx entry point for the Connect storyboard.
  *
  * Owns the SharePoint lifecycle — mounting React, tracking the host theme and
  * unmounting on dispose — and delegates all board behaviour to

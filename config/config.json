@@ -2,7 +2,7 @@
   "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/config.2.0.schema.json",
   "version": "2.0",
   "bundles": {
-    "spx-reporter-daily-story-drag-drop-web-part": {
+    "spx-connect-storyboard-web-part": {
       "components": [
         {
           "entrypoint": "./lib/webparts/spxReporterDailyStoryDragDrop/SpxReporterDailyStoryDragDropWebPart.js",

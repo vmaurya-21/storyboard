@@ -6,7 +6,7 @@ describe('LayoutSelect', () => {
   const options = [
     { value: 'connectHomepage', label: 'Connect Homepage' },
     { value: 'general', label: 'General' },
-    { value: 'reporterDaily', label: 'Reporter Daily' },
+    { value: 'reporterDaily', label: 'Storyboard' },
   ];
 
   it('renders selected option label', () => {
@@ -32,7 +32,7 @@ describe('LayoutSelect', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: /Select layout/i }));
-    fireEvent.click(screen.getByRole('option', { name: 'Reporter Daily' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Storyboard' }));
 
     expect(onChange).toHaveBeenCalledWith('reporterDaily');
   });
@@ -89,7 +89,7 @@ describe('LayoutSelect', () => {
     expect(screen.getByRole('option', { name: 'General' })).toHaveFocus();
 
     fireEvent.keyDown(listbox, { key: 'End' });
-    expect(screen.getByRole('option', { name: 'Reporter Daily' })).toHaveFocus();
+    expect(screen.getByRole('option', { name: 'Storyboard' })).toHaveFocus();
 
     fireEvent.keyDown(listbox, { key: 'Home' });
     expect(screen.getByRole('option', { name: 'Connect Homepage' })).toHaveFocus();

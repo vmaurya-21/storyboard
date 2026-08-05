@@ -2,11 +2,11 @@ import { getLayoutConfig, LAYOUTS, AVAILABLE_LAYOUTS } from '../../layouts/layou
 
 describe('Layout Config', () => {
   describe('getLayoutConfig', () => {
-    it('should return reporter daily layout config', () => {
+    it('should return storyboard layout config', () => {
       const config = getLayoutConfig('reporterDaily');
       
       expect(config.id).toBe('reporterDaily');
-      expect(config.name).toBe('Reporter Daily Site');
+      expect(config.name).toBe('Storyboard Site');
       expect(config.slots).toHaveLength(5);
     });
 
@@ -27,7 +27,7 @@ describe('Layout Config', () => {
     });
   });
 
-  describe('Reporter Daily Layout', () => {
+  describe('Storyboard Layout', () => {
     const config = LAYOUTS.reporterDaily;
 
     it('should have correct slot IDs', () => {
