@@ -1,7 +1,10 @@
-declare interface ISpxReporterDailyStoryDragDropWebPartStrings {
+declare interface ISpxConnectStoryDragDropWebPartStrings {
   PropertyPaneDescription: string;
   BasicGroupName: string;
   DescriptionFieldLabel: string;
+  AvailableStoriesListNameFieldLabel: string;
+  ScheduledStoriesListNameFieldLabel: string;
+  PublishedStoriesListNameFieldLabel: string;
   AppLocalEnvironmentSharePoint: string;
   AppLocalEnvironmentTeams: string;
   AppLocalEnvironmentOffice: string;
@@ -13,7 +16,7 @@ declare interface ISpxReporterDailyStoryDragDropWebPartStrings {
   UnknownEnvironment: string;
 }
 
-declare module 'SpxReporterDailyStoryDragDropWebPartStrings' {
-  const strings: ISpxReporterDailyStoryDragDropWebPartStrings;
+declare module 'SpxConnectStoryDragDropWebPartStrings' {
+  const strings: ISpxConnectStoryDragDropWebPartStrings;
   export = strings;
 }

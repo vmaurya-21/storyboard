@@ -309,6 +309,11 @@
         width: 68px;
         height: 68px;
     }
+
+    .thumbnailText .storyDescription {
+        -webkit-line-clamp: 3;
+        line-clamp: 3;
+    }
 }
 
 @media (min-width: #{$bp-md}) {
@@ -321,6 +326,10 @@
 
     .thumbnailText .thumbRow {
         gap: 12px;
+    }
+
+    .thumbnailText .storyDescription {
+        margin-top: 5px;
     }
 }
 

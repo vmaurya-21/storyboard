@@ -18,7 +18,15 @@ import EditStoryModal from './EditStoryModal';
 import DeleteGroupModal from './DeleteGroupModal';
 import DateTimePicker from './DateTimePicker';
 import { IStory, LayoutType, SlotStoryMap, ScheduledStoryGroup, CardLayout } from './types';
-import { getStories, createStory, updateStory, deleteStory, initializeSharePoint, IStoryItem } from '../services/availableStoriesService';
+import {
+  getStories,
+  createStory,
+  updateStory,
+  deleteStory,
+  initializeSharePoint,
+  setAvailableStoriesListName,
+  IStoryItem
+} from '../services/availableStoriesService';
 import { LinkedinIcon, ExternalLinkIcon, EditIcon } from './icons';
 import BoardSkeleton from './BoardSkeleton';
 import {
@@ -27,10 +35,11 @@ import {
   deleteScheduledGroup,
   deleteScheduledGroupByGroupId,
   rescheduleGroup,
+  setScheduledStoriesListName,
   fromDateKey,
   toDateKey,
 } from '../services/scheduleStoriesService';
-import { publishBoard, getLiveBoard } from '../services/publishStoriesService';
+import { publishBoard, getLiveBoard, setPublishedStoriesListName } from '../services/publishStoriesService';
 import { IWebPartContext } from '@microsoft/sp-webpart-base';
 import LayoutRenderer from './layouts/LayoutRenderer';
 import { AVAILABLE_LAYOUTS, getLayoutConfig } from './layouts/layoutConfig';
@@ -242,6 +251,12 @@ interface StoryDragDropProps {
    * failure path.
    */
   context?: IWebPartContext;
+  /** SharePoint list title for the available stories source list. */
+  availableStoriesListName?: string;
+  /** SharePoint list title for scheduled board snapshots. */
+  scheduledStoriesListName?: string;
+  /** SharePoint list title for published board snapshots. */
+  publishedStoriesListName?: string;
 }
 
 /**
@@ -257,7 +272,12 @@ interface StoryDragDropProps {
  *   which parks the current board and restores it on exit;
  * - owns the toast queue every action reports through.
  */
-const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
+const StoryDragDrop: React.FC<StoryDragDropProps> = ({
+  context,
+  availableStoriesListName,
+  scheduledStoriesListName,
+  publishedStoriesListName,
+}) => {
   const [availableStories, setAvailableStories] = useState<IStory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -338,6 +358,10 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
           return;
         }
         
+        setAvailableStoriesListName(availableStoriesListName);
+        setScheduledStoriesListName(scheduledStoriesListName);
+        setPublishedStoriesListName(publishedStoriesListName);
+
         initializeSharePoint(context);
         
         await new Promise(resolve => setTimeout(resolve, 200));
@@ -388,7 +412,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({ context }) => {
     return () => {
       isMounted = false;
     };
-  }, [context]);
+  }, [context, availableStoriesListName, scheduledStoriesListName, publishedStoriesListName]);
 
   const sensors = useSensors(
     useSensor(MouseSensor, {

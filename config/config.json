@@ -5,14 +5,14 @@
     "spx-connect-storyboard-web-part": {
       "components": [
         {
-          "entrypoint": "./lib/webparts/spxReporterDailyStoryDragDrop/SpxReporterDailyStoryDragDropWebPart.js",
-          "manifest": "./src/webparts/spxReporterDailyStoryDragDrop/SpxReporterDailyStoryDragDropWebPart.manifest.json"
+          "entrypoint": "./lib/webparts/spxConnectStoryDragDrop/SpxConnectStoryDragDropWebPart.js",
+          "manifest": "./src/webparts/spxConnectStoryDragDrop/SpxConnectStoryDragDropWebPart.manifest.json"
         }
       ]
     }
   },
   "externals": {},
   "localizedResources": {
-    "SpxReporterDailyStoryDragDropWebPartStrings": "lib/webparts/spxReporterDailyStoryDragDrop/loc/{locale}.js"
+    "SpxConnectStoryDragDropWebPartStrings": "lib/webparts/spxConnectStoryDragDrop/loc/{locale}.js"
   }
 }

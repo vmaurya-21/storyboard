@@ -8,8 +8,22 @@ import { getSp } from "./availableStoriesService";
 import { IStory, LayoutType, SlotStoryMap, CardLayout } from "../components/types";
 import { getLayoutConfig } from "../components/layouts/layoutConfig";
 
-/** Title of the SharePoint list holding scheduled groups. */
-export const SCHEDULE_LIST_NAME = "ScheduledStories";
+/** Default title of the SharePoint list holding scheduled groups. */
+export const DEFAULT_SCHEDULED_STORIES_LIST_NAME = "ScheduledStories";
+
+/** Backward-compatible alias used by existing tests/imports. */
+export const SCHEDULE_LIST_NAME = DEFAULT_SCHEDULED_STORIES_LIST_NAME;
+
+let scheduledStoriesListName = DEFAULT_SCHEDULED_STORIES_LIST_NAME;
+
+/** Override the SharePoint list title used by the schedule service. */
+export const setScheduledStoriesListName = (listName?: string): void => {
+  const next = (listName || "").trim();
+  scheduledStoriesListName = next || DEFAULT_SCHEDULED_STORIES_LIST_NAME;
+};
+
+/** Current SharePoint list title used by the schedule service. */
+export const getScheduledStoriesListName = (): string => scheduledStoriesListName;
 
 /** Most scheduled groups that may exist at once. */
 export const MAX_SCHEDULED_GROUPS = 10;
@@ -331,7 +345,7 @@ export const getScheduledGroups = async (): Promise<IScheduledGroupRecord[]> => 
   const sp = getSpOrThrow();
   try {
     const items: IRawScheduleItem[] = await sp.web.lists
-      .getByTitle(SCHEDULE_LIST_NAME)
+      .getByTitle(getScheduledStoriesListName())
       .items.select(
         "Id",
         "Title",
@@ -364,7 +378,7 @@ export const createScheduledGroup = async (
   const sp = getSpOrThrow();
   try {
     const payload = buildItemPayload(group);
-    const result = await sp.web.lists.getByTitle(SCHEDULE_LIST_NAME).items.add(payload);
+    const result = await sp.web.lists.getByTitle(getScheduledStoriesListName()).items.add(payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = result.data;
     const createdSpId = typeof data.Id === "number" ? data.Id : data.ID;
@@ -414,7 +428,7 @@ export const updateScheduledGroup = async (
 
     if (hasDate || hasTime) {
       const existing = await sp.web.lists
-         .getByTitle(SCHEDULE_LIST_NAME)
+         .getByTitle(getScheduledStoriesListName())
          .items.getById(spId)
          .select("ScheduleDate", "ScheduledDateTime", "BoardStateJson")();
 
@@ -430,7 +444,7 @@ export const updateScheduledGroup = async (
 
     if (hasBoard || hasDate || hasTime || hasLayout || hasPrefs) {
       const existing = await sp.web.lists
-        .getByTitle(SCHEDULE_LIST_NAME)
+        .getByTitle(getScheduledStoriesListName())
         .items.getById(spId)
         .select("GroupId", "BoardStateJson")();
       const prevState = parseBoardState(existing.BoardStateJson);
@@ -476,7 +490,7 @@ export const updateScheduledGroup = async (
 
     if (Object.keys(payload).length === 0) return;
 
-    await sp.web.lists.getByTitle(SCHEDULE_LIST_NAME).items.getById(spId).update(payload);
+    await sp.web.lists.getByTitle(getScheduledStoriesListName()).items.getById(spId).update(payload);
   } catch (error) {
     console.error(`Schedule Stories: failed to update group ${spId}`, error);
     throw error;
@@ -498,7 +512,7 @@ export const rescheduleGroup = async (
 export const setGroupStatus = async (spId: number, status: ScheduleStatus): Promise<void> => {
   const sp = getSpOrThrow();
   try {
-    await sp.web.lists.getByTitle(SCHEDULE_LIST_NAME).items.getById(spId).update({ Status: status });
+    await sp.web.lists.getByTitle(getScheduledStoriesListName()).items.getById(spId).update({ Status: status });
   } catch (error) {
     console.error(`Schedule Stories: failed to set status for ${spId}`, error);
     throw error;
@@ -509,7 +523,7 @@ export const setGroupStatus = async (spId: number, status: ScheduleStatus): Prom
 export const deleteScheduledGroup = async (spId: number): Promise<void> => {
   const sp = getSpOrThrow();
   try {
-    await sp.web.lists.getByTitle(SCHEDULE_LIST_NAME).items.getById(spId).delete();
+    await sp.web.lists.getByTitle(getScheduledStoriesListName()).items.getById(spId).delete();
   } catch (error) {
     console.error(`Schedule Stories: failed to delete group ${spId}`, error);
     throw error;
@@ -524,13 +538,13 @@ export const deleteScheduledGroupByGroupId = async (groupId: string): Promise<vo
   const sp = getSpOrThrow();
   try {
     const matches: Array<{ Id: number }> = await sp.web.lists
-      .getByTitle(SCHEDULE_LIST_NAME)
+      .getByTitle(getScheduledStoriesListName())
       .items.select("Id")
       .filter(`GroupId eq '${groupId.replace(/'/g, "''")}'`)
       .top(10)();
 
     for (const m of matches) {
-      await sp.web.lists.getByTitle(SCHEDULE_LIST_NAME).items.getById(m.Id).delete();
+      await sp.web.lists.getByTitle(getScheduledStoriesListName()).items.getById(m.Id).delete();
     }
   } catch (error) {
     console.error(`Schedule Stories: failed to delete group by GroupId ${groupId}`, error);
@@ -568,11 +582,12 @@ export const ensureScheduleStoriesList = async (): Promise<void> => {
   const sp = getSpOrThrow();
   try {
     const lists: Array<{ Title: string }> = await sp.web.lists();
-    const exists = lists.some((l) => l.Title === SCHEDULE_LIST_NAME);
+    const listName = getScheduledStoriesListName();
+    const exists = lists.some((l) => l.Title === listName);
     if (!exists) {
-      await sp.web.lists.add(SCHEDULE_LIST_NAME);
+      await sp.web.lists.add(listName);
     }
-    const list = sp.web.lists.getByTitle(SCHEDULE_LIST_NAME);
+    const list = sp.web.lists.getByTitle(listName);
 
     const addSafely = async (fn: () => Promise<unknown>): Promise<void> => {
       try {

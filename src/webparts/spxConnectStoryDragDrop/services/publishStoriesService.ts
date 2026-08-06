@@ -5,12 +5,26 @@ import "@pnp/sp/lists";
 import "@pnp/sp/items";
 import "@pnp/sp/fields";
 import { getSp } from "./availableStoriesService";
-import { SCHEDULE_LIST_NAME, setGroupStatus } from "./scheduleStoriesService";
+import { SCHEDULE_LIST_NAME, getScheduledStoriesListName, setGroupStatus } from "./scheduleStoriesService";
 import { IStory, LayoutType, SlotStoryMap, CardLayout } from "../components/types";
 import { getLayoutConfig } from "../components/layouts/layoutConfig";
 
-/** Title of the SharePoint list holding published board snapshots. */
-export const PUBLISH_LIST_NAME = "PublishedStories";
+/** Default title of the SharePoint list holding published board snapshots. */
+export const DEFAULT_PUBLISHED_STORIES_LIST_NAME = "PublishedStories";
+
+/** Backward-compatible alias used by existing tests/imports. */
+export const PUBLISH_LIST_NAME = DEFAULT_PUBLISHED_STORIES_LIST_NAME;
+
+let publishedStoriesListName = DEFAULT_PUBLISHED_STORIES_LIST_NAME;
+
+/** Override the SharePoint list title used by the publish service. */
+export const setPublishedStoriesListName = (listName?: string): void => {
+  const next = (listName || "").trim();
+  publishedStoriesListName = next || DEFAULT_PUBLISHED_STORIES_LIST_NAME;
+};
+
+/** Current SharePoint list title used by the publish service. */
+export const getPublishedStoriesListName = (): string => publishedStoriesListName;
 
 const VALID_LAYOUT_TYPES: LayoutType[] = ["reporterDaily", "general", "highlight", "connectHomepage"];
 const DEFAULT_LAYOUT_TYPE: LayoutType = "connectHomepage";
@@ -232,14 +246,14 @@ const SELECT_FIELDS: string[] = [
  */
 const supersedeLive = async (sp: SPFI): Promise<void> => {
   const live: Array<{ Id: number }> = await sp.web.lists
-    .getByTitle(PUBLISH_LIST_NAME)
+    .getByTitle(getPublishedStoriesListName())
     .items.select("Id")
     .filter(`IsLive eq '${IS_LIVE_YES}'`)
     .top(50)();
 
   for (const r of live) {
     await sp.web.lists
-      .getByTitle(PUBLISH_LIST_NAME)
+      .getByTitle(getPublishedStoriesListName())
       .items.getById(r.Id)
       .update({ IsLive: IS_LIVE_NO });
   }
@@ -254,7 +268,7 @@ const supersedeLive = async (sp: SPFI): Promise<void> => {
  */
 const prunePublishHistory = async (sp: SPFI): Promise<void> => {
   const items: Array<{ Id: number }> = await sp.web.lists
-    .getByTitle(PUBLISH_LIST_NAME)
+    .getByTitle(getPublishedStoriesListName())
     .items.select("Id")
     .orderBy("PublishedDateTime", false)
     .top(500)();
@@ -262,7 +276,7 @@ const prunePublishHistory = async (sp: SPFI): Promise<void> => {
   if (items.length <= 2) return;
 
   for (const item of items.slice(2)) {
-    await sp.web.lists.getByTitle(PUBLISH_LIST_NAME).items.getById(item.Id).delete();
+    await sp.web.lists.getByTitle(getPublishedStoriesListName()).items.getById(item.Id).delete();
   }
 };
 
@@ -306,7 +320,7 @@ export const publishBoard = async (
       payload[SOURCE_LOOKUP_ID_FIELD] = input.sourceScheduleSpId;
     }
 
-    const result = await sp.web.lists.getByTitle(PUBLISH_LIST_NAME).items.add(payload);
+    const result = await sp.web.lists.getByTitle(getPublishedStoriesListName()).items.add(payload);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = result.data;
 
@@ -347,7 +361,7 @@ export const getLiveBoard = async (): Promise<IPublishedBoardRecord | undefined>
   const sp = getSpOrThrow();
   try {
     const items: IRawPublishItem[] = await sp.web.lists
-      .getByTitle(PUBLISH_LIST_NAME)
+      .getByTitle(getPublishedStoriesListName())
       .items.select(...SELECT_FIELDS)
       .filter(`IsLive eq '${IS_LIVE_YES}'`)
       .orderBy("PublishedDateTime", false)
@@ -366,7 +380,7 @@ export const getPublishedBoards = async (): Promise<IPublishedBoardRecord[]> => 
   const sp = getSpOrThrow();
   try {
     const items: IRawPublishItem[] = await sp.web.lists
-      .getByTitle(PUBLISH_LIST_NAME)
+      .getByTitle(getPublishedStoriesListName())
       .items.select(...SELECT_FIELDS)
       .orderBy("PublishedDateTime", false)
       .top(500)();
@@ -388,14 +402,14 @@ export const unpublishBoard = async (): Promise<void> => {
   const sp = getSpOrThrow();
   try {
     const live: Array<{ Id: number }> = await sp.web.lists
-      .getByTitle(PUBLISH_LIST_NAME)
+      .getByTitle(getPublishedStoriesListName())
       .items.select("Id")
       .filter(`IsLive eq '${IS_LIVE_YES}'`)
       .top(50)();
 
     for (const r of live) {
       await sp.web.lists
-        .getByTitle(PUBLISH_LIST_NAME)
+        .getByTitle(getPublishedStoriesListName())
         .items.getById(r.Id)
         .update({ IsLive: IS_LIVE_NO });
     }
@@ -409,7 +423,7 @@ export const unpublishBoard = async (): Promise<void> => {
 export const deletePublishedBoard = async (spId: number): Promise<void> => {
   const sp = getSpOrThrow();
   try {
-    await sp.web.lists.getByTitle(PUBLISH_LIST_NAME).items.getById(spId).delete();
+    await sp.web.lists.getByTitle(getPublishedStoriesListName()).items.getById(spId).delete();
   } catch (error) {
     console.error(`Publish Stories: failed to delete published board ${spId}`, error);
     throw error;
@@ -427,11 +441,12 @@ export const ensurePublishStoriesList = async (): Promise<void> => {
   const sp = getSpOrThrow();
   try {
     const lists: Array<{ Title: string }> = await sp.web.lists();
-    const exists = lists.some((l) => l.Title === PUBLISH_LIST_NAME);
+    const listName = getPublishedStoriesListName();
+    const exists = lists.some((l) => l.Title === listName);
     if (!exists) {
-      await sp.web.lists.add(PUBLISH_LIST_NAME);
+      await sp.web.lists.add(listName);
     }
-    const list = sp.web.lists.getByTitle(PUBLISH_LIST_NAME);
+    const list = sp.web.lists.getByTitle(listName);
 
     const addSafely = async (fn: () => Promise<unknown>): Promise<void> => {
       try {
@@ -446,7 +461,8 @@ export const ensurePublishStoriesList = async (): Promise<void> => {
     await addSafely(() => list.fields.addChoice("IsLive", { Choices: [IS_LIVE_YES, IS_LIVE_NO] }));
 
     await addSafely(async () => {
-      const scheduleList = await sp.web.lists.getByTitle(SCHEDULE_LIST_NAME).select("Id")();
+      const scheduleListTitle = getScheduledStoriesListName() || SCHEDULE_LIST_NAME;
+      const scheduleList = await sp.web.lists.getByTitle(scheduleListTitle).select("Id")();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (list.fields as any).addLookup("SourceScheduleId", {
         LookupListId: (scheduleList as { Id: string }).Id,

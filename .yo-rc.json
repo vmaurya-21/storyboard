@@ -7,7 +7,7 @@
     "useGulp": false,
     "componentType": "webpart",
     "template": "react",
-    "componentName": "SpxReporterDailyStoryDragDrop",
+    "componentName": "SpxConnectStoryDragDrop",
     "componentDescription": "Story drag and drop web part",
     "plusBeta": false,
     "isCreatingSolution": true,

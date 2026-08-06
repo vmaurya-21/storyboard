@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { render, screen } from '@testing-library/react';
-import SpxReporterDailyStoryDragDrop from '../SpxReporterDailyStoryDragDrop';
+import SpxConnectStoryDragDrop from '../SpxConnectStoryDragDrop';
 import { mockContext } from './mockData';
-import { AppMode } from '../../SpxReporterDailyStoryDragDropWebPart';
+import { AppMode } from '../../SpxConnectStoryDragDropWebPart';
 
 jest.mock('../StoryDragDrop', () => {
   return function MockStoryDragDrop({ context }: any) {
@@ -10,7 +10,7 @@ jest.mock('../StoryDragDrop', () => {
   };
 });
 
-describe('SpxReporterDailyStoryDragDrop Component', () => {
+describe('SpxConnectStoryDragDrop Component', () => {
   const defaultProps = {
     description: 'Test Description',
     isDarkTheme: false,
@@ -21,42 +21,42 @@ describe('SpxReporterDailyStoryDragDrop Component', () => {
   };
 
   it('should render without crashing', () => {
-    render(<SpxReporterDailyStoryDragDrop {...defaultProps} />);
+    render(<SpxConnectStoryDragDrop {...defaultProps} />);
     expect(screen.getByTestId('story-drag-drop')).toBeInTheDocument();
   });
 
   it('should pass context to StoryDragDrop', () => {
-    render(<SpxReporterDailyStoryDragDrop {...defaultProps} />);
+    render(<SpxConnectStoryDragDrop {...defaultProps} />);
     expect(screen.getByText(/Context: provided/)).toBeInTheDocument();
   });
 
   it('should render when context is missing', () => {
     const propsWithoutContext = { ...defaultProps, context: undefined } as any;
-    render(<SpxReporterDailyStoryDragDrop {...propsWithoutContext} />);
+    render(<SpxConnectStoryDragDrop {...propsWithoutContext} />);
     expect(screen.getByText(/Context: missing/)).toBeInTheDocument();
   });
 
   it('should render with dark theme', () => {
     const darkThemeProps = { ...defaultProps, isDarkTheme: true };
-    render(<SpxReporterDailyStoryDragDrop {...darkThemeProps} />);
+    render(<SpxConnectStoryDragDrop {...darkThemeProps} />);
     expect(screen.getByTestId('story-drag-drop')).toBeInTheDocument();
   });
 
   it('should render with Teams context', () => {
     const teamsProps = { ...defaultProps, hasTeamsContext: true };
-    render(<SpxReporterDailyStoryDragDrop {...teamsProps} />);
+    render(<SpxConnectStoryDragDrop {...teamsProps} />);
     expect(screen.getByTestId('story-drag-drop')).toBeInTheDocument();
   });
 
   it('should render with different user display name', () => {
     const userProps = { ...defaultProps, userDisplayName: 'John Doe' };
-    render(<SpxReporterDailyStoryDragDrop {...userProps} />);
+    render(<SpxConnectStoryDragDrop {...userProps} />);
     expect(screen.getByTestId('story-drag-drop')).toBeInTheDocument();
   });
 
   it('should render with custom description', () => {
     const descProps = { ...defaultProps, description: 'Custom Description' };
-    render(<SpxReporterDailyStoryDragDrop {...descProps} />);
+    render(<SpxConnectStoryDragDrop {...descProps} />);
     expect(screen.getByTestId('story-drag-drop')).toBeInTheDocument();
   });
 });

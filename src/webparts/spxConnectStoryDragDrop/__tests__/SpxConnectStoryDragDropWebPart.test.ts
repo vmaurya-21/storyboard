@@ -1,17 +1,17 @@
 import { Version } from '@microsoft/sp-core-library';
-import SpxReporterDailyStoryDragDropWebPart from '../SpxReporterDailyStoryDragDropWebPart';
+import SpxConnectStoryDragDropWebPart from '../SpxConnectStoryDragDropWebPart';
 
-describe('SpxReporterDailyStoryDragDropWebPart', () => {
-  let webPart: SpxReporterDailyStoryDragDropWebPart;
+describe('SpxConnectStoryDragDropWebPart', () => {
+  let webPart: SpxConnectStoryDragDropWebPart;
 
   beforeEach(() => {
-    webPart = new SpxReporterDailyStoryDragDropWebPart();
+    webPart = new SpxConnectStoryDragDropWebPart();
   });
 
   describe('Initialization', () => {
     it('should create instance', () => {
       expect(webPart).toBeDefined();
-      expect(webPart).toBeInstanceOf(SpxReporterDailyStoryDragDropWebPart);
+      expect(webPart).toBeInstanceOf(SpxConnectStoryDragDropWebPart);
     });
 
     it('should have dataVersion property', () => {

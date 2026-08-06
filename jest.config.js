@@ -16,7 +16,7 @@ module.exports = {
         '^@pnp/core(|/.*)$': '<rootDir>/src/__mocks__/@pnp/core.ts',
 
         // Mock localization strings
-        '^SpxReporterDailyStoryDragDropWebPartStrings$': '<rootDir>/src/__mocks__/SpxReporterDailyStoryDragDropWebPartStrings.ts',
+        '^SpxConnectStoryDragDropWebPartStrings$': '<rootDir>/src/__mocks__/SpxConnectStoryDragDropWebPartStrings.ts',
 
         // Mock Fluent UI
         '^@fluentui/react/lib/Icon$': '<rootDir>/src/__mocks__/@fluentui/react-icon.ts',

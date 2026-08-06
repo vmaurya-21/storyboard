@@ -72,8 +72,23 @@ interface ISharePointStoryItem {
   Author?: { Title?: string };
 }
 
-/** Title of the SharePoint list backing the available stories. */
-const LIST_NAME = "AvailableStories";
+/** Default title of the SharePoint list backing available stories. */
+export const DEFAULT_AVAILABLE_STORIES_LIST_NAME = "AvailableStories";
+
+let availableStoriesListName = DEFAULT_AVAILABLE_STORIES_LIST_NAME;
+
+/**
+ * Override the SharePoint list title used by this service.
+ *
+ * Blank values are ignored and reset to the default.
+ */
+export const setAvailableStoriesListName = (listName?: string): void => {
+  const next = (listName || "").trim();
+  availableStoriesListName = next || DEFAULT_AVAILABLE_STORIES_LIST_NAME;
+};
+
+/** Current SharePoint list title used by this service. */
+export const getAvailableStoriesListName = (): string => availableStoriesListName;
 
 /**
  * Auto-detect a source category string ('internal' | 'external' | 'linkedin') from a post URL.
@@ -152,7 +167,7 @@ export const createStory = async (story: IStoryItem): Promise<IItemAddResult> =>
       payload.LinkToPost = { Url: story.linkToPost };
     }
 
-    const result = await client.web.lists.getByTitle(LIST_NAME).items.add(payload);
+    const result = await client.web.lists.getByTitle(getAvailableStoriesListName()).items.add(payload);
     return result;
   } catch (error) {
     console.error("Error creating story:", error);
@@ -167,7 +182,7 @@ export const getStories = async (): Promise<IStoryItem[]> => {
   try {
     const client = getSpOrThrow();
     const items = await client.web.lists
-      .getByTitle(LIST_NAME)
+      .getByTitle(getAvailableStoriesListName())
       .items.select(
         "ID",
         "Title",
@@ -233,7 +248,7 @@ export const updateStory = async (id: number, story: IStoryItem): Promise<void> 
       payload.LinkToPost = { Url: story.linkToPost };
     }
 
-    await client.web.lists.getByTitle(LIST_NAME).items.getById(id).update(payload);
+    await client.web.lists.getByTitle(getAvailableStoriesListName()).items.getById(id).update(payload);
   } catch (error) {
     console.error("Error updating story:", error);
     throw error;
@@ -246,7 +261,7 @@ export const updateStory = async (id: number, story: IStoryItem): Promise<void> 
 export const deleteStory = async (id: number): Promise<void> => {
   try {
     const client = getSpOrThrow();
-    await client.web.lists.getByTitle(LIST_NAME).items.getById(id).delete();
+    await client.web.lists.getByTitle(getAvailableStoriesListName()).items.getById(id).delete();
   } catch (error) {
     console.error("Error deleting story:", error);
     throw error;
@@ -261,15 +276,16 @@ export const ensureListExists = async (): Promise<void> => {
     const client = getSpOrThrow();
 
     const lists = await client.web.lists();
-    const storyListExists = lists.some((list: ISharePointList) => list.Title === LIST_NAME);
+    const listName = getAvailableStoriesListName();
+    const storyListExists = lists.some((list: ISharePointList) => list.Title === listName);
 
     if (storyListExists) {
       return;
     }
 
-    await client.web.lists.add(LIST_NAME);
+    await client.web.lists.add(listName);
 
-    const list = client.web.lists.getByTitle(LIST_NAME);
+    const list = client.web.lists.getByTitle(listName);
     
     await list.fields.addText("Description");
 

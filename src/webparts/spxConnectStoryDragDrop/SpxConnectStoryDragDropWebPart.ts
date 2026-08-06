@@ -8,9 +8,9 @@ import {
 import { BaseClientSideWebPart } from '@microsoft/sp-webpart-base';
 import { IReadonlyTheme } from '@microsoft/sp-component-base';
 
-import * as strings from 'SpxReporterDailyStoryDragDropWebPartStrings';
-import SpxReporterDailyStoryDragDrop from './components/SpxReporterDailyStoryDragDrop';
-import { ISpxReporterDailyStoryDragDropProps } from './components/ISpxReporterDailyStoryDragDropProps';
+import * as strings from 'SpxConnectStoryDragDropWebPartStrings';
+import SpxConnectStoryDragDrop from './components/SpxConnectStoryDragDrop';
+import { ISpxConnectStoryDragDropProps } from './components/ISpxConnectStoryDragDropProps';
 
 /** Host the web part is running in. */
 export enum AppMode {
@@ -23,9 +23,15 @@ export enum AppMode {
 }
 
 /** Persisted property-pane settings for the web part. */
-export interface ISpxReporterDailyStoryDragDropWebPartProps {
+export interface ISpxConnectStoryDragDropWebPartProps {
   /** Free-text description configured by the page author. */
   description: string;
+  /** SharePoint list title for available stories. */
+  availableStoriesListName: string;
+  /** SharePoint list title for scheduled stories. */
+  scheduledStoriesListName: string;
+  /** SharePoint list title for published stories. */
+  publishedStoriesListName: string;
 }
 
 /**
@@ -33,9 +39,9 @@ export interface ISpxReporterDailyStoryDragDropWebPartProps {
  *
  * Owns the SharePoint lifecycle — mounting React, tracking the host theme and
  * unmounting on dispose — and delegates all board behaviour to
- * {@link SpxReporterDailyStoryDragDrop}.
+ * {@link SpxConnectStoryDragDrop}.
  */
-export default class SpxReporterDailyStoryDragDropWebPart extends BaseClientSideWebPart<ISpxReporterDailyStoryDragDropWebPartProps> {
+export default class SpxConnectStoryDragDropWebPart extends BaseClientSideWebPart<ISpxConnectStoryDragDropWebPartProps> {
 
   /** Whether the host page is currently using an inverted (dark) theme. */
   private _isDarkTheme: boolean = false;
@@ -47,10 +53,13 @@ export default class SpxReporterDailyStoryDragDropWebPart extends BaseClientSide
    * value changes.
    */
   public render(): void {
-    const element: React.ReactElement<ISpxReporterDailyStoryDragDropProps> = React.createElement(
-      SpxReporterDailyStoryDragDrop,
+    const element: React.ReactElement<ISpxConnectStoryDragDropProps> = React.createElement(
+      SpxConnectStoryDragDrop,
       {
         description: this.properties.description,
+        availableStoriesListName: this.properties.availableStoriesListName,
+        scheduledStoriesListName: this.properties.scheduledStoriesListName,
+        publishedStoriesListName: this.properties.publishedStoriesListName,
         isDarkTheme: this._isDarkTheme,
         context: this.context,
         appMode: AppMode.Spfx,
@@ -71,6 +80,10 @@ export default class SpxReporterDailyStoryDragDropWebPart extends BaseClientSide
    * @returns A promise that resolves once initialisation is complete.
    */
   protected onInit(): Promise<void> {
+    this.properties.description = this.properties.description || 'Connect Story board';
+    this.properties.availableStoriesListName = this.properties.availableStoriesListName || 'AvailableStories';
+    this.properties.scheduledStoriesListName = this.properties.scheduledStoriesListName || 'ScheduledStories';
+    this.properties.publishedStoriesListName = this.properties.publishedStoriesListName || 'PublishedStories';
     return Promise.resolve();
   }
 
@@ -107,7 +120,7 @@ export default class SpxReporterDailyStoryDragDropWebPart extends BaseClientSide
   }
 
   /**
-   * Schema version of {@link ISpxReporterDailyStoryDragDropWebPartProps}.
+   * Schema version of {@link ISpxConnectStoryDragDropWebPartProps}.
    *
    * @returns The version SharePoint uses to migrate persisted properties.
    */
@@ -133,6 +146,15 @@ export default class SpxReporterDailyStoryDragDropWebPart extends BaseClientSide
               groupFields: [
                 PropertyPaneTextField('description', {
                   label: strings.DescriptionFieldLabel
+                }),
+                PropertyPaneTextField('availableStoriesListName', {
+                  label: strings.AvailableStoriesListNameFieldLabel
+                }),
+                PropertyPaneTextField('scheduledStoriesListName', {
+                  label: strings.ScheduledStoriesListNameFieldLabel
+                }),
+                PropertyPaneTextField('publishedStoriesListName', {
+                  label: strings.PublishedStoriesListNameFieldLabel
                 })
               ]
             }
