@@ -451,18 +451,15 @@
 }
 
 // Reference: default variant — `bg-primary text-primary-foreground
-// hover:bg-primary/90`. That hover is the brand colour at 90% alpha, so it
-// composites against the white dialog and comes out *lighter* (≈ #1aa3d1);
-// the shared `$primary-hover` darkens instead, so it is deliberately not used
-// here. Kept as rgba rather than the flattened hex so it tracks the backdrop
-// the way the reference does.
+// hover:bg-primary/90`. This project uses the shared `$primary-hover` token
+// for a single consistent blue hover across primary actions.
 .btnSave {
     @extend %dialogBtn;
     background: $primary;
     color: $primary-foreground;
 
     &:hover {
-        background: rgba($primary, 0.9);
+        background: $primary-hover;
     }
 }
 

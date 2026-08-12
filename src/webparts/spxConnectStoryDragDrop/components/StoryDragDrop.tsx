@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -16,6 +16,7 @@ import styles from './StoryDragDrop.module.scss';
 import AddStoryModal from './AddStoryModal';
 import EditStoryModal from './EditStoryModal';
 import DeleteGroupModal from './DeleteGroupModal';
+import AlertDialog from './AlertDialog';
 import DateTimePicker from './DateTimePicker';
 import { IStory, LayoutType, SlotStoryMap, ScheduledStoryGroup, CardLayout } from './types';
 import {
@@ -150,6 +151,43 @@ const formatStories = (stories: IStoryItem[]): IStory[] =>
     source: story.source || '',
     author: story.author || undefined,
   }));
+
+const toTimestamp = (value?: string): number => {
+  if (!value) return Number.NEGATIVE_INFINITY;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+};
+
+const sortAvailableStories = (stories: IStory[]): IStory[] =>
+  [...stories].sort((a, b) => {
+    const modifiedDelta = toTimestamp(b.date) - toTimestamp(a.date);
+    if (modifiedDelta !== 0) return modifiedDelta;
+    return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+  });
+
+const serializeBoardStateForDirtyCheck = (
+  layout: LayoutType,
+  slots: SlotStoryMap,
+  slotPrefs: Record<string, CardLayout>,
+  available: IStory[]
+): string => {
+  const slotEntries = Object.keys(slots)
+    .sort()
+    .map((slotId) => `${slotId}:${slots[slotId]?.id || ''}`);
+
+  const prefEntries = Object.keys(slotPrefs)
+    .sort()
+    .map((slotId) => `${slotId}:${slotPrefs[slotId]}`);
+
+  const availableIds = Array.from(new Set(available.map((story) => story.id))).sort();
+
+  return JSON.stringify({
+    layout,
+    slotEntries,
+    prefEntries,
+    availableIds,
+  });
+};
 
 /** Props for an available-story list item row. */
 interface AvailableStoryItemProps {
@@ -305,6 +343,22 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
   const [showRescheduleCalendar, setShowRescheduleCalendar] = useState(false);
   const [toasts, setToasts] = useState<IToast[]>([]);
   const [groupToDelete, setGroupToDelete] = useState<ScheduledStoryGroup | null>(null);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+  const [baselineSnapshot, setBaselineSnapshot] = useState<string | null>(null);
+
+  const currentSnapshot = useMemo(
+    () => serializeBoardStateForDirtyCheck(selectedLayout, slotStories, slotLayoutPreferences, availableStories),
+    [selectedLayout, slotStories, slotLayoutPreferences, availableStories]
+  );
+
+  const hasUnsavedChanges = baselineSnapshot !== null && currentSnapshot !== baselineSnapshot;
+  const hasStoriesOnBoard = useMemo(
+    () => Object.keys(slotStories).some((slotId) => !!slotStories[slotId]),
+    [slotStories]
+  );
+  const isResetDisabled = isSchedulingMode || isGroupEditingMode || !hasUnsavedChanges;
+  const isClearDisabled = isSchedulingMode || isGroupEditingMode || !hasStoriesOnBoard;
 
 
   /**
@@ -369,9 +423,60 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
         try {
           const stories = await getStories();
           const formattedStories = formatStories(stories);
+          let nextAvailableStories = [...formattedStories];
+          let nextSlotStories: SlotStoryMap = {};
+          let nextSlotLayoutPreferences: Record<string, CardLayout> = {};
+          let nextSelectedLayout: LayoutType | null = null;
+
+          try {
+            const published = await getLiveBoard();
+            if (published) {
+              nextSlotStories = { ...published.slotStories };
+              nextSlotLayoutPreferences = published.slotLayoutPreferences
+                ? { ...published.slotLayoutPreferences }
+                : {};
+              nextSelectedLayout = published.layoutType;
+
+              const usedIds = new Set(
+                Object.keys(nextSlotStories)
+                  .map((key) => nextSlotStories[key])
+                  .filter((story): story is IStory => !!story)
+                  .map((story) => story.id)
+              );
+
+              const universe: IStory[] = [
+                ...formattedStories,
+                ...Object.keys(nextSlotStories)
+                  .map((key) => nextSlotStories[key])
+                  .filter((story): story is IStory => !!story),
+              ];
+
+              const seen = new Set<string>();
+              nextAvailableStories = universe.filter((story) => {
+                if (usedIds.has(story.id) || seen.has(story.id)) return false;
+                seen.add(story.id);
+                return true;
+              });
+            }
+          } catch (err) {
+            console.error('Failed to load published board from SharePoint:', err);
+          }
           
           if (isMounted) {
-            setAvailableStories(formattedStories);
+            setAvailableStories(nextAvailableStories);
+            setSlotStories(nextSlotStories);
+            setSlotLayoutPreferences(nextSlotLayoutPreferences);
+            if (nextSelectedLayout) {
+              setSelectedLayout(nextSelectedLayout);
+            }
+            setBaselineSnapshot(
+              serializeBoardStateForDirtyCheck(
+                nextSelectedLayout || 'connectHomepage',
+                nextSlotStories,
+                nextSlotLayoutPreferences,
+                nextAvailableStories
+              )
+            );
             setError(null);
           }
         } catch (err) {
@@ -690,13 +795,26 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
    * Deliberately silent — the reference's Clear Board raises no toast, and
    * Reset Board reports its own outcome.
    */
-  const handleClearBoard = (): void => {
+  const executeClearBoard = (): void => {
     const storiesInSlots = Object.keys(slotStories)
       .map(key => slotStories[key])
       .filter((s): s is IStory => s !== null);
     setAvailableStories([...availableStories, ...storiesInSlots]);
     setSlotStories({});
+    setSlotLayoutPreferences({});
     showToast('Board Cleared', 'info', 'All stories moved to available stories.');
+  };
+
+  /** Opens a confirmation before clearing the board. */
+  const handleClearBoard = (): void => {
+    if (isClearDisabled) return;
+    setIsClearConfirmOpen(true);
+  };
+
+  /** Runs clear only after explicit confirmation. */
+  const handleClearBoardConfirmed = (): void => {
+    setIsClearConfirmOpen(false);
+    executeClearBoard();
   };
 
   /**
@@ -708,15 +826,25 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
    * the board and in the list. With nothing published the board is cleared
    * instead.
    */
-  const handleResetBoard = (): void => {
+  const executeResetBoard = (): void => {
     getLiveBoard()
       .then((published) => {
         if (!published) {
           const storiesInSlots = Object.keys(slotStories)
             .map(key => slotStories[key])
             .filter((s): s is IStory => s !== null);
-          setAvailableStories([...availableStories, ...storiesInSlots]);
-          setSlotStories({});
+          const nextAvailable = [...availableStories, ...storiesInSlots];
+          const nextSlots: SlotStoryMap = {};
+          setAvailableStories(nextAvailable);
+          setSlotStories(nextSlots);
+          setBaselineSnapshot(
+            serializeBoardStateForDirtyCheck(
+              selectedLayout,
+              nextSlots,
+              slotLayoutPreferences,
+              nextAvailable
+            )
+          );
           showToast('Board Reset', 'info', 'No previously published board state found. Board cleared.');
           return;
         }
@@ -746,13 +874,24 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
           seen.add(s.id);
           return true;
         });
+        const nextPrefs = published.slotLayoutPreferences
+          ? { ...published.slotLayoutPreferences }
+          : slotLayoutPreferences;
 
         setSlotStories(restoredSlots);
         setAvailableStories(nextAvailable);
         if (published.slotLayoutPreferences) {
-          setSlotLayoutPreferences({ ...published.slotLayoutPreferences });
+          setSlotLayoutPreferences(nextPrefs);
         }
         setSelectedLayout(published.layoutType);
+        setBaselineSnapshot(
+          serializeBoardStateForDirtyCheck(
+            published.layoutType,
+            restoredSlots,
+            nextPrefs,
+            nextAvailable
+          )
+        );
 
         const restoredCount = Object.keys(restoredSlots)
           .map(k => restoredSlots[k])
@@ -767,6 +906,17 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
         console.error('Reset Board failed:', err);
         showToast('Reset failed', 'error', 'Could not restore the published board.');
       });
+  };
+
+  /** Opens a confirmation before restoring the published board snapshot. */
+  const handleResetBoard = (): void => {
+    setIsResetConfirmOpen(true);
+  };
+
+  /** Runs the reset flow only after explicit confirmation. */
+  const handleResetBoardConfirmed = (): void => {
+    setIsResetConfirmOpen(false);
+    executeResetBoard();
   };
 
   /**
@@ -1235,6 +1385,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       slotLayoutPreferences
     })
       .then(() => {
+        setBaselineSnapshot(currentSnapshot);
         showToast(
           'Storyboard Published!',
           'success',
@@ -1248,7 +1399,12 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       });
   };
 
-  const filteredStories = availableStories.filter(story =>
+  const sortedAvailableStories = useMemo(
+    () => sortAvailableStories(availableStories),
+    [availableStories]
+  );
+
+  const filteredStories = sortedAvailableStories.filter(story =>
     story.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -1295,7 +1451,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
             type="button"
             className={styles.btnReset}
             onClick={handleResetBoard}
-            disabled={isSchedulingMode || isGroupEditingMode}
+            disabled={isResetDisabled}
           >
             <Icon iconName="Refresh" />
             <span className={styles.btnLabelFull}>Reset Board</span>
@@ -1305,7 +1461,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
             type="button"
             className={styles.btnClear}
             onClick={handleClearBoard}
-            disabled={isSchedulingMode || isGroupEditingMode}
+            disabled={isClearDisabled}
           >
             <Icon iconName="Delete" />
             <span className={styles.btnLabelFull}>Clear Board</span>
@@ -1550,6 +1706,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
                    <input
                     type="text"
                     placeholder="Search stories by title..."
+                    aria-label="Search available stories"
                     className={styles.searchInput}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -1626,6 +1783,30 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
           onClose={() => setGroupToDelete(null)}
           onConfirm={() => handleDeleteScheduledGroupConfirmed(groupToDelete.id)}
         />
+      )}
+
+      {isResetConfirmOpen && (
+        <AlertDialog
+          title="Reset board to last published state?"
+          titleId="reset-board-heading"
+          actionLabel="Yes, Reset Board"
+          onCancel={() => setIsResetConfirmOpen(false)}
+          onAction={handleResetBoardConfirmed}
+        >
+          This will discard unsaved board changes and restore the currently published board.
+        </AlertDialog>
+      )}
+
+      {isClearConfirmOpen && (
+        <AlertDialog
+          title="Clear all stories from the board?"
+          titleId="clear-board-heading"
+          actionLabel="Yes, Clear Board"
+          onCancel={() => setIsClearConfirmOpen(false)}
+          onAction={handleClearBoardConfirmed}
+        >
+          This will remove all stories from board slots and reset tile display options to defaults.
+        </AlertDialog>
       )}
 
       <ToastContainer toasts={toasts} onCloseToast={handleCloseToast} />

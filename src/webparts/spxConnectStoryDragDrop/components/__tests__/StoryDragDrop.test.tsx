@@ -148,6 +148,144 @@ describe('StoryDragDrop Component', () => {
     expect(screen.getByText('Test Story 2')).toBeInTheDocument();
   });
 
+  it('sorts available stories by modified date desc, then title asc on ties', async () => {
+    (availableStoriesService.getStories as jest.Mock).mockResolvedValue([
+      {
+        id: 1,
+        title: 'Beta Story',
+        description: '',
+        imageUrl: 'https://example.com/1.jpg',
+        linkToPost: 'https://example.com/1',
+        date: '2026-08-10T10:00:00.000Z',
+      },
+      {
+        id: 2,
+        title: 'Alpha Story',
+        description: '',
+        imageUrl: 'https://example.com/2.jpg',
+        linkToPost: 'https://example.com/2',
+        date: '2026-08-10T10:00:00.000Z',
+      },
+      {
+        id: 3,
+        title: 'Newest Story',
+        description: '',
+        imageUrl: 'https://example.com/3.jpg',
+        linkToPost: 'https://example.com/3',
+        date: '2026-08-11T10:00:00.000Z',
+      },
+    ]);
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    const titles = within(screen.getByTestId('sortable-context'))
+      .getAllByRole('heading', { level: 4 })
+      .map((el) => el.textContent);
+
+    expect(titles).toEqual(['Newest Story', 'Alpha Story', 'Beta Story']);
+  });
+
+  it('keeps available-story sort order after refresh', async () => {
+    const sortedInput = [
+      {
+        id: 1,
+        title: 'Zulu Story',
+        description: '',
+        imageUrl: 'https://example.com/1.jpg',
+        linkToPost: 'https://example.com/1',
+        date: '2026-08-09T10:00:00.000Z',
+      },
+      {
+        id: 2,
+        title: 'Alpha Story',
+        description: '',
+        imageUrl: 'https://example.com/2.jpg',
+        linkToPost: 'https://example.com/2',
+        date: '2026-08-11T10:00:00.000Z',
+      },
+      {
+        id: 3,
+        title: 'Beta Story',
+        description: '',
+        imageUrl: 'https://example.com/3.jpg',
+        linkToPost: 'https://example.com/3',
+        date: '2026-08-10T10:00:00.000Z',
+      },
+    ];
+    (availableStoriesService.getStories as jest.Mock).mockResolvedValue(sortedInput);
+
+    const first = render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    let titles = within(screen.getByTestId('sortable-context'))
+      .getAllByRole('heading', { level: 4 })
+      .map((el) => el.textContent);
+    expect(titles).toEqual(['Alpha Story', 'Beta Story', 'Zulu Story']);
+
+    first.unmount();
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    titles = within(screen.getByTestId('sortable-context'))
+      .getAllByRole('heading', { level: 4 })
+      .map((el) => el.textContent);
+    expect(titles).toEqual(['Alpha Story', 'Beta Story', 'Zulu Story']);
+  });
+
+  it('hydrates board from published state on initial load', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      slotStories: {
+        'slot-1': mockStories[0],
+      },
+      slotLayoutPreferences: {
+        'slot-1': 'thumbnail-text',
+      },
+    });
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    expect(screen.queryByText('Test Story 1')).not.toBeInTheDocument();
+    expect(screen.getByText('Test Story 2')).toBeInTheDocument();
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-layout', 'thumbnail-text');
+  });
+
+  it('disables Reset Board when there are no unsaved changes', async () => {
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: /Reset Board/i })).toBeDisabled();
+  });
+
+  it('disables Clear Board when board is already empty', async () => {
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: /Clear Board/i })).toBeDisabled();
+  });
+
   it('shows error message if SharePoint context is missing', async () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     render(<StoryDragDrop context={undefined} />);
@@ -332,6 +470,17 @@ describe('StoryDragDrop Component', () => {
   });
 
   it('clears the board', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      slotStories: {
+        'slot-1': mockStories[0],
+      },
+      slotLayoutPreferences: {
+        'slot-1': 'thumbnail-text',
+      },
+    });
+
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
@@ -340,11 +489,13 @@ describe('StoryDragDrop Component', () => {
 
     const clearButton = screen.getByText(/Clear Board/i);
     fireEvent.click(clearButton);
+    fireEvent.click(screen.getByText('Yes, Clear Board'));
     
     expect(screen.getByTestId('layout-renderer')).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText('Board Cleared')).toBeInTheDocument();
     });
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-layout', '');
   });
 
   it('enters and exits scheduling mode', async () => {
@@ -666,11 +817,38 @@ describe('StoryDragDrop Component', () => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
-    const searchInput = screen.getByPlaceholderText(/Search stories by title/i);
+    const searchInput = screen.getByRole('textbox', { name: /Search available stories/i });
     fireEvent.change(searchInput, { target: { value: 'Story 1' } });
     
     expect(screen.getByText('Test Story 1')).toBeInTheDocument();
     expect(screen.queryByText('Test Story 2')).not.toBeInTheDocument();
+  });
+
+  it('does not affect stories already placed on board while searching', async () => {
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    act(() => {
+      mockOnDragEnd!({
+        active: {
+          id: 'story-1',
+          data: { current: { sortable: { containerId: 'available-stories' } } },
+        },
+        over: { id: 'slot-1' },
+      });
+    });
+
+    const searchInput = screen.getByRole('textbox', { name: /Search available stories/i });
+    fireEvent.change(searchInput, { target: { value: 'Story 1' } });
+
+    expect(screen.queryByText('Test Story 1')).not.toBeInTheDocument();
+    expect(screen.getByText(/No stories found matching/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Remove'));
+    expect(screen.getByText('Test Story 1')).toBeInTheDocument();
   });
 
   it('does not match stories by description text', async () => {
@@ -731,7 +909,7 @@ describe('StoryDragDrop Component', () => {
   });
 
   it('resets board to previously published state when available', async () => {
-    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValueOnce({
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
       layoutType: 'connectHomepage',
       layoutName: 'Connect Homepage',
       slotStories: {
@@ -748,7 +926,10 @@ describe('StoryDragDrop Component', () => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
+    fireEvent.click(screen.getByText('Remove'));
+
     fireEvent.click(screen.getByText(/Reset Board/i));
+    fireEvent.click(screen.getByText('Yes, Reset Board'));
 
     await waitFor(() => {
       expect(screen.getByText('Board Reset to Last Published State')).toBeInTheDocument();
@@ -764,7 +945,18 @@ describe('StoryDragDrop Component', () => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
+    act(() => {
+      mockOnDragEnd!({
+        active: {
+          id: 'story-1',
+          data: { current: { sortable: { containerId: 'available-stories' } } },
+        },
+        over: { id: 'slot-1' },
+      });
+    });
+
     fireEvent.click(screen.getByText(/Reset Board/i));
+    fireEvent.click(screen.getByText('Yes, Reset Board'));
 
     await waitFor(() => {
       expect(screen.getByText('Board Reset')).toBeInTheDocument();
@@ -773,7 +965,7 @@ describe('StoryDragDrop Component', () => {
   });
 
   it('shows unsupported layout toast when reset state is not connectHomepage', async () => {
-    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValueOnce({
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
       layoutType: 'general',
       layoutName: 'General',
       slotStories: {
@@ -788,7 +980,11 @@ describe('StoryDragDrop Component', () => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
+    fireEvent.click(screen.getByText(/Clear Board/i));
+    fireEvent.click(screen.getByText('Yes, Clear Board'));
+
     fireEvent.click(screen.getByText(/Reset Board/i));
+    fireEvent.click(screen.getByText('Yes, Reset Board'));
 
     await waitFor(() => {
       expect(screen.getByText('Layout Type Does Not Exist')).toBeInTheDocument();
@@ -797,7 +993,7 @@ describe('StoryDragDrop Component', () => {
 
   it('shows reset failure toast when published board fetch fails', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    (publishStoriesService.getLiveBoard as jest.Mock).mockRejectedValueOnce(new Error('reset failed'));
+    (publishStoriesService.getLiveBoard as jest.Mock).mockRejectedValue(new Error('reset failed'));
 
     render(<StoryDragDrop context={mockContext as any} />);
 
@@ -805,7 +1001,18 @@ describe('StoryDragDrop Component', () => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
+    act(() => {
+      mockOnDragEnd!({
+        active: {
+          id: 'story-1',
+          data: { current: { sortable: { containerId: 'available-stories' } } },
+        },
+        over: { id: 'slot-1' },
+      });
+    });
+
     fireEvent.click(screen.getByText(/Reset Board/i));
+    fireEvent.click(screen.getByText('Yes, Reset Board'));
 
     await waitFor(() => {
       expect(screen.getByText('Reset failed')).toBeInTheDocument();
@@ -814,7 +1021,7 @@ describe('StoryDragDrop Component', () => {
   });
 
   it('publishes successfully when board has stories after reset', async () => {
-    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValueOnce({
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
       layoutType: 'connectHomepage',
       layoutName: 'Connect Homepage',
       slotStories: {
@@ -829,7 +1036,10 @@ describe('StoryDragDrop Component', () => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
+    fireEvent.click(screen.getByText('Remove'));
+
     fireEvent.click(screen.getByText(/Reset Board/i));
+    fireEvent.click(screen.getByText('Yes, Reset Board'));
     await waitFor(() => {
       expect(screen.getByText('Board Reset to Last Published State')).toBeInTheDocument();
     });
@@ -843,7 +1053,7 @@ describe('StoryDragDrop Component', () => {
   });
 
   it('shows publish failure toast when publish request fails', async () => {
-    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValueOnce({
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
       layoutType: 'connectHomepage',
       layoutName: 'Connect Homepage',
       slotStories: {
@@ -859,7 +1069,10 @@ describe('StoryDragDrop Component', () => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
+    fireEvent.click(screen.getByText('Remove'));
+
     fireEvent.click(screen.getByText(/Reset Board/i));
+    fireEvent.click(screen.getByText('Yes, Reset Board'));
     await waitFor(() => {
       expect(screen.getByText('Board Reset to Last Published State')).toBeInTheDocument();
     });

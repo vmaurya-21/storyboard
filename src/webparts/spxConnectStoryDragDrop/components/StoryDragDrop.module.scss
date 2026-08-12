@@ -150,14 +150,11 @@
 }
 
 // Reference: Add story and Publish Board are the same button — an inline
-// `style={{ backgroundColor: '#0099cc' }}` with `className="hover:opacity-90 h-10"`.
+// `style={{ backgroundColor: '#007fb0' }}` with `className="hover:opacity-90 h-10"`.
 //
 // Two consequences worth spelling out:
 //
-//  - The inline background beats the default variant's `hover:bg-primary/90`,
-//    so hovering changes *only* opacity. The whole button fades — icon and
-//    label included — over an unchanged brand colour. `$primary-hover` darkens
-//    the background instead and is deliberately not used here.
+//  - Hover uses the shared `$primary-hover` token so all blue actions match.
 //  - Neither button carries a flex utility, so above `sm` they size to their
 //    content (the Button base is `shrink-0`). The old `max-width` caps sat
 //    right at the label's natural width — "Publish Board" needs ~146px against
@@ -181,7 +178,7 @@
     }
 
     &:hover {
-        opacity: 0.9;
+        background: $primary-hover;
     }
 }
 
@@ -455,16 +452,17 @@
 }
 
 .saveGroupEditsBtn {
-    background-color: #0099cc !important;
+    background-color: $primary !important;
     color: #ffffff !important;
-    border-color: #0099cc !important;
+    border-color: $primary !important;
 
     i {
         color: #ffffff !important;
     }
 
     &:hover {
-        opacity: 0.9;
+        background-color: $primary-hover !important;
+        border-color: $primary-hover !important;
     }
 }
 
