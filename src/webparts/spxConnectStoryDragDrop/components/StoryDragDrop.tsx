@@ -152,15 +152,19 @@ const formatStories = (stories: IStoryItem[]): IStory[] =>
     author: story.author || undefined,
   }));
 
-const toTimestamp = (value?: string): number => {
+const toDateOnlyTimestamp = (value?: string): number => {
   if (!value) return Number.NEGATIVE_INFINITY;
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return Number.NEGATIVE_INFINITY;
+
+  // Compare by UTC calendar date only, ignoring time-of-day.
+  return Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate());
 };
 
 const sortAvailableStories = (stories: IStory[]): IStory[] =>
   [...stories].sort((a, b) => {
-    const modifiedDelta = toTimestamp(b.date) - toTimestamp(a.date);
+    const modifiedDelta = toDateOnlyTimestamp(b.date) - toDateOnlyTimestamp(a.date);
     if (modifiedDelta !== 0) return modifiedDelta;
     return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
   });

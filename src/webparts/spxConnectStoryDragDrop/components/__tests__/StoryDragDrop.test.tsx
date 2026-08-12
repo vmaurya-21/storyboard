@@ -189,6 +189,39 @@ describe('StoryDragDrop Component', () => {
     expect(titles).toEqual(['Newest Story', 'Alpha Story', 'Beta Story']);
   });
 
+  it('ignores time when sorting and uses title for same-day ties', async () => {
+    (availableStoriesService.getStories as jest.Mock).mockResolvedValue([
+      {
+        id: 1,
+        title: 'Beta Story',
+        description: '',
+        imageUrl: 'https://example.com/1.jpg',
+        linkToPost: 'https://example.com/1',
+        date: '2026-08-10T23:59:59.000Z',
+      },
+      {
+        id: 2,
+        title: 'Alpha Story',
+        description: '',
+        imageUrl: 'https://example.com/2.jpg',
+        linkToPost: 'https://example.com/2',
+        date: '2026-08-10T00:00:01.000Z',
+      },
+    ]);
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    const titles = within(screen.getByTestId('sortable-context'))
+      .getAllByRole('heading', { level: 4 })
+      .map((el) => el.textContent);
+
+    expect(titles).toEqual(['Alpha Story', 'Beta Story']);
+  });
+
   it('keeps available-story sort order after refresh', async () => {
     const sortedInput = [
       {
