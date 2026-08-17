@@ -41,10 +41,11 @@ jest.mock('../EditStoryModal', () => ({ story, onClose, onUpdate, onDelete }: an
 ));
 // `data-slot1-layout` surfaces the shared `slotLayoutPreferences` map so tests
 // can assert the live board's copy survives a trip through the editing modes.
-jest.mock('../layouts/LayoutRenderer', () => ({ onRemoveStory, slotLayoutPreferences }: any) => (
+jest.mock('../layouts/LayoutRenderer', () => ({ onRemoveStory, slotLayoutPreferences, slotStories }: any) => (
   <div
     data-testid="layout-renderer"
     data-slot1-layout={(slotLayoutPreferences || {})['slot-1'] || ''}
+    data-slot1-title={(slotStories || {})['slot-1']?.title || ''}
   >
     <button onClick={() => onRemoveStory('slot-1')}>Remove</button>
   </div>
@@ -112,6 +113,7 @@ describe('StoryDragDrop Component', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    window.localStorage.clear();
     (availableStoriesService.initializeSharePoint as jest.Mock).mockImplementation(() => {});
     (availableStoriesService.getStories as jest.Mock).mockResolvedValue(mockStories.map(s => ({
         id: parseInt(s.id.split('-')[1]),
@@ -297,6 +299,133 @@ describe('StoryDragDrop Component', () => {
     expect(screen.queryByText('Test Story 1')).not.toBeInTheDocument();
     expect(screen.getByText('Test Story 2')).toBeInTheDocument();
     expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-layout', 'thumbnail-text');
+  });
+
+  it('hydrates board with latest story details when published snapshot is stale', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      slotStories: {
+        'slot-1': {
+          ...mockStories[0],
+          title: 'Old Published Title',
+          description: 'Old published description',
+        },
+      },
+      slotLayoutPreferences: {
+        'slot-1': 'full-image',
+      },
+    });
+
+    (availableStoriesService.getStories as jest.Mock).mockResolvedValue([
+      {
+        id: 1,
+        title: 'Updated Story Title',
+        description: 'Updated description',
+        imageUrl: 'https://example.com/new.jpg',
+        linkToPost: 'https://example.com/new',
+      },
+      {
+        id: 2,
+        title: 'Another Story',
+        description: 'Another desc',
+        imageUrl: 'https://example.com/2.jpg',
+        linkToPost: 'https://example.com/2',
+      },
+    ]);
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-title', 'Updated Story Title');
+    expect(screen.queryByText('Updated Story Title')).not.toBeInTheDocument();
+    expect(screen.getByText('Another Story')).toBeInTheDocument();
+  });
+
+  it('preserves unsaved board selection across refresh using local draft', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      slotStories: {
+        'slot-1': mockStories[0],
+      },
+      slotLayoutPreferences: {
+        'slot-1': 'full-image',
+      },
+    });
+
+    const first = render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    act(() => {
+      mockOnDragEnd!({
+        active: {
+          id: 'story-2',
+          data: { current: { sortable: { containerId: 'available-stories' } } },
+        },
+        over: { id: 'slot-1' },
+      });
+    });
+
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-title', 'Test Story 2');
+
+    first.unmount();
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-title', 'Test Story 2');
+  });
+
+  it('does not preserve clear action across refresh and restores published board', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      slotStories: {
+        'slot-1': mockStories[0],
+      },
+      slotLayoutPreferences: {
+        'slot-1': 'full-image',
+      },
+    });
+
+    const first = render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    act(() => {
+      mockOnDragEnd!({
+        active: {
+          id: 'story-2',
+          data: { current: { sortable: { containerId: 'available-stories' } } },
+        },
+        over: { id: 'slot-1' },
+      });
+    });
+
+    fireEvent.click(screen.getByText(/Clear Board/i));
+    fireEvent.click(screen.getByText('Yes, Clear Board'));
+
+    first.unmount();
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-title', 'Test Story 1');
   });
 
   it('disables Reset Board when there are no unsaved changes', async () => {
@@ -884,6 +1013,42 @@ describe('StoryDragDrop Component', () => {
     expect(screen.getByText('Test Story 1')).toBeInTheDocument();
   });
 
+  it('resets slot layout preference after remove so a newly added story defaults to full-image', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      slotStories: {
+        'slot-1': mockStories[0],
+      },
+      slotLayoutPreferences: {
+        'slot-1': 'thumbnail-text',
+      },
+    });
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-layout', 'thumbnail-text');
+
+    fireEvent.click(screen.getByText('Remove'));
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-layout', '');
+
+    act(() => {
+      mockOnDragEnd!({
+        active: {
+          id: 'story-2',
+          data: { current: { sortable: { containerId: 'available-stories' } } },
+        },
+        over: { id: 'slot-1' },
+      });
+    });
+
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-layout', '');
+  });
+
   it('does not match stories by description text', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
@@ -939,6 +1104,53 @@ describe('StoryDragDrop Component', () => {
       expect(screen.getByText('Cannot Publish Empty Board')).toBeInTheDocument();
     });
     expect(publishStoriesService.publishBoard).not.toHaveBeenCalled();
+  });
+
+  it('shows an error and keeps board unchanged when trying to add story beyond available slots', async () => {
+    (availableStoriesService.getStories as jest.Mock).mockResolvedValue([
+      { id: 1, title: 'Story One', description: '', imageUrl: 'https://example.com/1.jpg', linkToPost: 'https://example.com/1' },
+      { id: 2, title: 'Story Two', description: '', imageUrl: 'https://example.com/2.jpg', linkToPost: 'https://example.com/2' },
+      { id: 3, title: 'Story Three', description: '', imageUrl: 'https://example.com/3.jpg', linkToPost: 'https://example.com/3' },
+      { id: 4, title: 'Story Four', description: '', imageUrl: 'https://example.com/4.jpg', linkToPost: 'https://example.com/4' },
+      { id: 5, title: 'Story Five', description: '', imageUrl: 'https://example.com/5.jpg', linkToPost: 'https://example.com/5' },
+      { id: 6, title: 'Overflow Story', description: '', imageUrl: 'https://example.com/6.jpg', linkToPost: 'https://example.com/6' },
+    ]);
+
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      slotStories: {
+        'slot-1': { id: 'story-1', title: 'Story One', description: '', imageUrl: 'https://example.com/1.jpg', linkToPost: 'https://example.com/1', date: '2024-01-01' },
+        'slot-2': { id: 'story-2', title: 'Story Two', description: '', imageUrl: 'https://example.com/2.jpg', linkToPost: 'https://example.com/2', date: '2024-01-02' },
+        'slot-3': { id: 'story-3', title: 'Story Three', description: '', imageUrl: 'https://example.com/3.jpg', linkToPost: 'https://example.com/3', date: '2024-01-03' },
+        'slot-4': { id: 'story-4', title: 'Story Four', description: '', imageUrl: 'https://example.com/4.jpg', linkToPost: 'https://example.com/4', date: '2024-01-04' },
+        'slot-5': { id: 'story-5', title: 'Story Five', description: '', imageUrl: 'https://example.com/5.jpg', linkToPost: 'https://example.com/5', date: '2024-01-05' },
+      },
+      slotLayoutPreferences: {},
+    });
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-title', 'Story One');
+    expect(screen.getByText('Overflow Story')).toBeInTheDocument();
+
+    act(() => {
+      mockOnDragEnd!({
+        active: {
+          id: 'story-6',
+          data: { current: { sortable: { containerId: 'available-stories' } } },
+        },
+        over: { id: 'slot-1' },
+      });
+    });
+
+    expect(screen.getByText('No Available Slots')).toBeInTheDocument();
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-title', 'Story One');
+    expect(screen.getByText('Overflow Story')).toBeInTheDocument();
   });
 
   it('resets board to previously published state when available', async () => {

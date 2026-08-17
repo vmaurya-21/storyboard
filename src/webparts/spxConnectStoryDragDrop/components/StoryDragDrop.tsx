@@ -50,6 +50,15 @@ import { ToastContainer, IToast } from './Toast';
 /** Most scheduled groups that may exist at once, matching the reference cap. */
 const MAX_SCHEDULED_GROUPS = 10;
 
+const LOCAL_DRAFT_VERSION = 1;
+
+interface IBoardDraft {
+  version: number;
+  layout: LayoutType;
+  slotStories: SlotStoryMap;
+  slotLayoutPreferences: Record<string, CardLayout>;
+}
+
 /**
  * Whether a calendar day has already begun.
  *
@@ -151,6 +160,65 @@ const formatStories = (stories: IStoryItem[]): IStory[] =>
     source: story.source || '',
     author: story.author || undefined,
   }));
+
+const mergeSlotStoriesWithLatest = (
+  slots: SlotStoryMap,
+  latestStories: IStory[]
+): SlotStoryMap => {
+  const byId = new Map(latestStories.map((story) => [story.id, story]));
+  const merged: SlotStoryMap = {};
+
+  Object.keys(slots).forEach((slotId) => {
+    const story = slots[slotId];
+    if (!story) {
+      merged[slotId] = story;
+      return;
+    }
+
+    merged[slotId] = byId.get(story.id) || story;
+  });
+
+  return merged;
+};
+
+const loadDraft = (storageKey: string): IBoardDraft | null => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as Partial<IBoardDraft>;
+    if (!parsed || parsed.version !== LOCAL_DRAFT_VERSION) return null;
+    if (!parsed.layout || !parsed.slotStories || !parsed.slotLayoutPreferences) return null;
+
+    return {
+      version: LOCAL_DRAFT_VERSION,
+      layout: parsed.layout,
+      slotStories: parsed.slotStories,
+      slotLayoutPreferences: parsed.slotLayoutPreferences,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const saveDraft = (storageKey: string, draft: IBoardDraft): void => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.setItem(storageKey, JSON.stringify(draft));
+  } catch {
+    // Ignore storage write failures.
+  }
+};
+
+const clearDraft = (storageKey: string): void => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.removeItem(storageKey);
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+};
 
 const toDateOnlyTimestamp = (value?: string): number => {
   if (!value) return Number.NEGATIVE_INFINITY;
@@ -351,6 +419,15 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
   const [baselineSnapshot, setBaselineSnapshot] = useState<string | null>(null);
 
+  const localDraftKey = useMemo(
+    () => [
+      'spx-storydragdrop-draft',
+      availableStoriesListName || 'AvailableStories',
+      publishedStoriesListName || 'PublishedStories',
+    ].join(':'),
+    [availableStoriesListName, publishedStoriesListName]
+  );
+
   const currentSnapshot = useMemo(
     () => serializeBoardStateForDirtyCheck(selectedLayout, slotStories, slotLayoutPreferences, availableStories),
     [selectedLayout, slotStories, slotLayoutPreferences, availableStories]
@@ -435,7 +512,10 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
           try {
             const published = await getLiveBoard();
             if (published) {
-              nextSlotStories = { ...published.slotStories };
+              nextSlotStories = mergeSlotStoriesWithLatest(
+                { ...published.slotStories },
+                formattedStories
+              );
               nextSlotLayoutPreferences = published.slotLayoutPreferences
                 ? { ...published.slotLayoutPreferences }
                 : {};
@@ -464,6 +544,40 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
             }
           } catch (err) {
             console.error('Failed to load published board from SharePoint:', err);
+          }
+
+          const draft = loadDraft(localDraftKey);
+          if (draft) {
+            const draftSlots = mergeSlotStoriesWithLatest(draft.slotStories, formattedStories);
+            const draftHasStories = Object.keys(draftSlots).some((slotId) => !!draftSlots[slotId]);
+
+            if (draftHasStories) {
+              const usedIds = new Set(
+                Object.keys(draftSlots)
+                  .map((key) => draftSlots[key])
+                  .filter((story): story is IStory => !!story)
+                  .map((story) => story.id)
+              );
+
+              const universe: IStory[] = [
+                ...formattedStories,
+                ...Object.keys(draftSlots)
+                  .map((key) => draftSlots[key])
+                  .filter((story): story is IStory => !!story),
+              ];
+
+              const seen = new Set<string>();
+              nextAvailableStories = universe.filter((story) => {
+                if (usedIds.has(story.id) || seen.has(story.id)) return false;
+                seen.add(story.id);
+                return true;
+              });
+              nextSlotStories = draftSlots;
+              nextSlotLayoutPreferences = { ...draft.slotLayoutPreferences };
+              nextSelectedLayout = draft.layout;
+            } else {
+              clearDraft(localDraftKey);
+            }
           }
           
           if (isMounted) {
@@ -521,7 +635,44 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [context, availableStoriesListName, scheduledStoriesListName, publishedStoriesListName]);
+  }, [
+    context,
+    availableStoriesListName,
+    scheduledStoriesListName,
+    publishedStoriesListName,
+    localDraftKey,
+  ]);
+
+  useEffect(() => {
+    if (isLoading || isSchedulingMode || isGroupEditingMode) return;
+
+    const hasStories = Object.keys(slotStories).some((slotId) => !!slotStories[slotId]);
+    if (!hasStories) {
+      clearDraft(localDraftKey);
+      return;
+    }
+
+    if (!hasUnsavedChanges) {
+      clearDraft(localDraftKey);
+      return;
+    }
+
+    saveDraft(localDraftKey, {
+      version: LOCAL_DRAFT_VERSION,
+      layout: selectedLayout,
+      slotStories,
+      slotLayoutPreferences,
+    });
+  }, [
+    isLoading,
+    isSchedulingMode,
+    isGroupEditingMode,
+    slotStories,
+    selectedLayout,
+    slotLayoutPreferences,
+    hasUnsavedChanges,
+    localDraftKey,
+  ]);
 
   const sensors = useSensors(
     useSensor(MouseSensor, {
@@ -588,6 +739,16 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       if (!destSlot) return;
 
       const occupant = slotStories[destSlot];
+      const hasEmptySlot = slotIds.some((slotId) => !slotStories[slotId]);
+      if (!hasEmptySlot && occupant) {
+        showToast(
+          'No Available Slots',
+          'error',
+          'All board slots are already filled. Remove a story before adding another.'
+        );
+        return;
+      }
+
       setSlotStories(prev => ({ ...prev, [destSlot]: story }));
       setAvailableStories(prev => {
         let next = prev.filter(s => s.id !== story.id);
@@ -790,6 +951,13 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       const newSlotStories = { ...slotStories };
       delete newSlotStories[slotId];
       setSlotStories(newSlotStories);
+
+      // A newly added story should start in the default full-image mode.
+      setSlotLayoutPreferences((prev) => {
+        const next = { ...prev };
+        delete next[slotId];
+        return next;
+      });
     }
   };
 
@@ -806,6 +974,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
     setAvailableStories([...availableStories, ...storiesInSlots]);
     setSlotStories({});
     setSlotLayoutPreferences({});
+    clearDraft(localDraftKey);
     showToast('Board Cleared', 'info', 'All stories moved to available stories.');
   };
 
@@ -849,6 +1018,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
               nextAvailable
             )
           );
+          clearDraft(localDraftKey);
           showToast('Board Reset', 'info', 'No previously published board state found. Board cleared.');
           return;
         }
@@ -896,6 +1066,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
             nextAvailable
           )
         );
+        clearDraft(localDraftKey);
 
         const restoredCount = Object.keys(restoredSlots)
           .map(k => restoredSlots[k])
@@ -1390,6 +1561,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
     })
       .then(() => {
         setBaselineSnapshot(currentSnapshot);
+        clearDraft(localDraftKey);
         showToast(
           'Storyboard Published!',
           'success',

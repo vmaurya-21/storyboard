@@ -319,8 +319,8 @@
     // above on specificity rather than on source order.
     input.inputError:focus,
     textarea.inputError:focus {
-        border-color: $destructive;
-        box-shadow: 0 0 0 1px rgba($destructive, 0.2);
+        border-color: #C50F1F;
+        box-shadow: 0 0 0 1px rgba(197, 15, 31, 0.2);
     }
 
     textarea {
@@ -350,7 +350,16 @@
 // border alone and only rings once focused. That focused state is defined
 // inside `.formGroup`, which outranks a bare `.inputError:focus`.
 .inputError {
-    border-color: $destructive !important;
+    border-color: #C50F1F !important;
+    background-color: #FDF3F4 !important;
+}
+
+.formGroup {
+    input.inputError,
+    textarea.inputError {
+        background-color: #FDF3F4 !important;
+        border-color: #C50F1F !important;
+    }
 }
 
 .errorMessage {

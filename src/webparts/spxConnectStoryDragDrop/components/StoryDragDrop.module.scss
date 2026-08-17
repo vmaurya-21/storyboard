@@ -15,7 +15,7 @@
     line-height: $leading-normal;
 
     @media (min-width: #{$bp-md}) {
-        padding: 24px;
+        padding: 32px;
     }
 
     *,
@@ -1302,7 +1302,7 @@
 
 @media (min-width: #{$bp-md}) {
     .storyDragDrop {
-        padding: 24px;
+        padding: 32px;
     }
 
     .header {

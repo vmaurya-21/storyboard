@@ -59,6 +59,26 @@ const StoryCard: React.FC<IStoryCardProps> = ({
     .filter(Boolean)
     .join(' ');
 
+  const rawSource = (story.source || source || '').toLowerCase();
+  const canOpenExternalStory =
+    !onRemove &&
+    rawSource !== 'internal' &&
+    !!story.linkToPost &&
+    story.linkToPost !== '#';
+
+  const handleOpenStory = (): void => {
+    if (!canOpenExternalStory || typeof window === 'undefined') return;
+    window.open(story.linkToPost, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleCardKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (!canOpenExternalStory) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleOpenStory();
+    }
+  };
+
   const handleRemove = (e: React.MouseEvent): void => {
     e.stopPropagation();
     if (onRemove) onRemove();
@@ -82,7 +102,6 @@ const StoryCard: React.FC<IStoryCardProps> = ({
   ) : null;
 
   const sourceBadge = (tone: 'onImage' | 'onLight'): React.ReactNode => {
-    const rawSource = (story.source || source || '').toLowerCase();
     if (rawSource === 'internal') return null;
 
     const toneClass = tone === 'onImage' ? styles.badgeOnImage : styles.badgeOnLight;
@@ -110,7 +129,13 @@ const StoryCard: React.FC<IStoryCardProps> = ({
 
   if (layout === 'full-image') {
     return (
-      <div className={cardClassName}>
+      <div
+        className={cardClassName}
+        onClick={canOpenExternalStory ? handleOpenStory : undefined}
+        onKeyDown={canOpenExternalStory ? handleCardKeyDown : undefined}
+        role={canOpenExternalStory ? 'link' : undefined}
+        tabIndex={canOpenExternalStory ? 0 : undefined}
+      >
         <div className={styles.overlayTopLeft}>
           {grip}
         </div>
@@ -132,7 +157,13 @@ const StoryCard: React.FC<IStoryCardProps> = ({
 
   if (layout === 'thumbnail-text') {
     return (
-      <div className={cardClassName}>
+      <div
+        className={cardClassName}
+        onClick={canOpenExternalStory ? handleOpenStory : undefined}
+        onKeyDown={canOpenExternalStory ? handleCardKeyDown : undefined}
+        role={canOpenExternalStory ? 'link' : undefined}
+        tabIndex={canOpenExternalStory ? 0 : undefined}
+      >
         <div className={styles.overlayTopLeft}>
           {grip}
         </div>
@@ -156,7 +187,13 @@ const StoryCard: React.FC<IStoryCardProps> = ({
   }
 
   return (
-    <div className={cardClassName}>
+    <div
+      className={cardClassName}
+      onClick={canOpenExternalStory ? handleOpenStory : undefined}
+      onKeyDown={canOpenExternalStory ? handleCardKeyDown : undefined}
+      role={canOpenExternalStory ? 'link' : undefined}
+      tabIndex={canOpenExternalStory ? 0 : undefined}
+    >
       <div className={styles.overlayTopLeft}>
         {grip}
       </div>

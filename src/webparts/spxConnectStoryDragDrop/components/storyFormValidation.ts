@@ -9,9 +9,8 @@ export type StoryRequiredField = 'title' | 'imageUrl' | 'linkToPost';
  */
 export const isValidUrl = (url: string): boolean => {
   try {
-    // eslint-disable-next-line no-new
-    new URL(url);
-    return true;
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
   } catch {
     return false;
   }

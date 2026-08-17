@@ -76,4 +76,31 @@ describe('StoryCard Component', () => {
     const card = container.firstChild as HTMLElement;
     expect(card.className).toContain('small');
   });
+
+  it('opens external story in a new tab when card is clicked in read-only mode', () => {
+    const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null as any);
+
+    render(<StoryCard story={mockStory} variant="large" />);
+
+    const linkLikeCard = screen.getByRole('link');
+    fireEvent.click(linkLikeCard);
+
+    expect(openSpy).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener,noreferrer');
+    openSpy.mockRestore();
+  });
+
+  it('does not open a new tab for internal story links', () => {
+    const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null as any);
+
+    render(
+      <StoryCard
+        story={{ ...mockStory, linkToPost: 'https://whitecase.com/internal' }}
+        variant="large"
+      />
+    );
+
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
 });

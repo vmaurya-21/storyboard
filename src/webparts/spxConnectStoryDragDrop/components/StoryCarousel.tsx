@@ -4,7 +4,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { CardLayout, IStory } from './types';
 import styles from './StoryCarousel.module.scss';
-import { formatPublishDate } from './cards/storyHelpers';
+import { detectStorySource, formatPublishDate } from './cards/storyHelpers';
 
 /**
  * How a carousel slide renders its story.
@@ -214,6 +214,8 @@ interface ICardProps {
   displayMode: CarouselDisplayMode;
   /** Editor overlay to render above the content, or `null` for read-only. */
   controls: React.ReactNode;
+  /** Opens the story target in a new tab when the card is clickable. */
+  onOpenStory?: () => void;
 }
 
 /**
@@ -224,12 +226,30 @@ interface ICardProps {
  * `overflow: hidden` would clip it. Removal is handled by the overlay's X
  * control instead.
  */
-const CarouselCard: React.FC<ICardProps> = ({ story, displayMode, controls }) => (
-  <div className={styles.card}>
-    {controls}
-    <CardContent story={story} displayMode={displayMode} />
-  </div>
-);
+const CarouselCard: React.FC<ICardProps> = ({ story, displayMode, controls, onOpenStory }) => {
+  const isLink = !!onOpenStory;
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (!onOpenStory) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onOpenStory();
+    }
+  };
+
+  return (
+    <div
+      className={styles.card}
+      onClick={onOpenStory}
+      onKeyDown={isLink ? handleKeyDown : undefined}
+      role={isLink ? 'link' : undefined}
+      tabIndex={isLink ? 0 : undefined}
+    >
+      {controls}
+      <CardContent story={story} displayMode={displayMode} />
+    </div>
+  );
+};
 
 /** Props for {@link CarouselSlide}. */
 interface ISlideProps {
@@ -251,6 +271,8 @@ interface ISlideProps {
   onRemove?: () => void;
   /** Whether the layout menu is offered. */
   canChangeLayout: boolean;
+  /** Opens the slide's destination in a new tab when clickable. */
+  onOpenStory?: () => void;
   /** 1-based position of this slide, for the accessible label. */
   index: number;
   /** Total number of real slides, for the accessible label. */
@@ -272,6 +294,7 @@ const CarouselSlide: React.FC<ISlideProps> = ({
   onSelectMode,
   onRemove,
   canChangeLayout,
+  onOpenStory,
   index,
   total
 }) => {
@@ -290,6 +313,7 @@ const CarouselSlide: React.FC<ISlideProps> = ({
         <CarouselCard
           story={story}
           displayMode={displayMode}
+          onOpenStory={onOpenStory}
           controls={
             isAdminMode ? (
               <Controls
@@ -549,6 +573,21 @@ const StoryCarousel: React.FC<IStoryCarouselProps> = ({
             const mode = toCarouselMode(slotLayoutPreferences[slotId]);
             const story = slotStories[slotId];
             return (
+              (() => {
+                const sourceInfo = story ? detectStorySource(story.linkToPost) : { source: 'internal' as const };
+                const canOpenExternalStory =
+                  !!story &&
+                  !isAdminMode &&
+                  sourceInfo.source !== 'internal' &&
+                  !!story.linkToPost &&
+                  story.linkToPost !== '#';
+
+                const openExternalStory = (): void => {
+                  if (!story || !canOpenExternalStory || typeof window === 'undefined') return;
+                  window.open(story.linkToPost, '_blank', 'noopener,noreferrer');
+                };
+
+                return (
               <CarouselSlide
                 key={slotId}
                 slotId={slotId}
@@ -567,7 +606,10 @@ const StoryCarousel: React.FC<IStoryCarouselProps> = ({
                 }}
                 onRemove={onRemoveStory ? () => onRemoveStory(slotId) : undefined}
                 canChangeLayout={!!onSlotLayoutChange}
+                onOpenStory={canOpenExternalStory ? openExternalStory : undefined}
               />
+                );
+              })()
             );
           })}
           {renderClone(slotIds[0], 'clone-first')}

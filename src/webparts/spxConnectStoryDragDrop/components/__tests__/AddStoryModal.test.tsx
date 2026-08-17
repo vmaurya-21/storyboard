@@ -195,6 +195,26 @@ describe('AddStoryModal Component', () => {
     expect(mockOnAdd).not.toHaveBeenCalled();
   });
 
+  it('should reject non-http(s) link to post URLs', async () => {
+    render(<AddStoryModal onClose={mockOnClose} onAdd={mockOnAdd} />);
+
+    const titleInput = screen.getByLabelText(/title/i);
+    const imageInput = screen.getByLabelText(/image url/i);
+    const linkInput = screen.getByLabelText(/link to post/i);
+
+    await userEvent.type(titleInput, 'Test Story');
+    await userEvent.type(imageInput, 'https://example.com/image.jpg');
+    await userEvent.type(linkInput, 'ftp://example.com/post');
+
+    fireEvent.click(screen.getByText('Save'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Please enter a valid URL')).toBeInTheDocument();
+    });
+
+    expect(mockOnAdd).not.toHaveBeenCalled();
+  });
+
   it('should reset form state when cancel button is clicked', async () => {
     render(<AddStoryModal onClose={mockOnClose} onAdd={mockOnAdd} />);
     

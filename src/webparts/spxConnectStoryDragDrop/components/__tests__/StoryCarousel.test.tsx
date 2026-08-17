@@ -121,6 +121,24 @@ describe('StoryCarousel', () => {
     expect(screen.queryByTitle('Remove story')).not.toBeInTheDocument();
   });
 
+  it('opens external story in a new tab when a read-only tile is clicked', () => {
+    const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null as any);
+
+    render(
+      <StoryCarousel
+        slotIds={slotIds}
+        slotStories={slotStories}
+        isAdminMode={false}
+      />
+    );
+
+    const clickableTile = screen.getAllByRole('link')[0];
+    fireEvent.click(clickableTile);
+
+    expect(openSpy).toHaveBeenCalledWith('https://example.com/story1', '_blank', 'noopener,noreferrer');
+    openSpy.mockRestore();
+  });
+
   it('moves forward when next is clicked', async () => {
     const { container } = render(
       <StoryCarousel
