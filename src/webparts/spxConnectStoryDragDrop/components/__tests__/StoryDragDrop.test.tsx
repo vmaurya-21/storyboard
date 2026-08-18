@@ -789,7 +789,7 @@ describe('StoryDragDrop Component', () => {
     expect(within(availableList()).getByText('Test Story 1')).toBeInTheDocument();
   });
 
-  it('keeps scheduled stories out of the available list when scheduling succeeds', async () => {
+  it('returns scheduled stories to the available list when scheduling succeeds', async () => {
     (scheduleStoriesService.createScheduledGroup as jest.Mock).mockImplementation(
       (group: any) => Promise.resolve(group)
     );
@@ -822,11 +822,13 @@ describe('StoryDragDrop Component', () => {
       expect(screen.getByText('Board Scheduled Successfully!')).toBeInTheDocument();
     });
 
-    // The group owns it now, so it must not reappear in the available list —
-    // the group's own card still shows the title, hence the scoped query.
+    // Scheduling records a future arrangement; it does not consume the story.
+    // It returns to the available list, matching what a reload produces — only
+    // the live board's occupants are withheld there. The group's own card also
+    // shows the title, hence the scoped query.
     expect(
-      within(screen.getByTestId('sortable-context')).queryByText('Test Story 1')
-    ).not.toBeInTheDocument();
+      within(screen.getByTestId('sortable-context')).getByText('Test Story 1')
+    ).toBeInTheDocument();
   });
 
   it('restores the live board layout preferences when group edits are cancelled', async () => {

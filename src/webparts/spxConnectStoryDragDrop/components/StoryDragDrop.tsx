@@ -1290,24 +1290,22 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
    * Leaves scheduling mode and restores the board and layout preferences
    * parked on entry.
    *
-   * Stories still sitting in the slots return to the available list: they left
-   * it when they were dropped, and abandoning the schedule means nothing has
-   * taken ownership of them.
+   * Stories sitting in the slots return to the available list on both paths —
+   * abandoning the schedule and saving it. Scheduling a group records a
+   * *future* arrangement; it does not take the stories out of circulation.
+   * That is what a reload already assumes, since `loadStories` withholds only
+   * the live board's occupants from the available list and never a scheduled
+   * group's, and it is what leaving group-editing mode already does.
    *
-   * @param returnPlacedStories - Whether to hand the slots' stories back.
-   * Pass `false` from the success path, where the new group owns them and a
-   * story must live in exactly one place. Callers wired straight to an
-   * `onClick` must go through a wrapper, or the click event arrives here as
-   * a truthy first argument.
+   * The parked board's own occupants are then filtered back out, so a story
+   * restored into a slot is never also listed as available.
    */
-  const handleExitScheduling = (returnPlacedStories: boolean = true): void => {
+  const handleExitScheduling = (): void => {
     const storiesFromBoard: IStory[] = [];
-    if (returnPlacedStories) {
-      Object.keys(slotStories).forEach(key => {
-        const story = slotStories[key];
-        if (story) storiesFromBoard.push(story);
-      });
-    }
+    Object.keys(slotStories).forEach(key => {
+      const story = slotStories[key];
+      if (story) storiesFromBoard.push(story);
+    });
 
     const restoredSlots: SlotStoryMap = { ...originalBoardState };
     const restoredIds = new Set(
@@ -1417,9 +1415,10 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
     createScheduledGroup(scheduledGroup)
       .then((saved) => {
         setScheduledGroups(prev => [...prev, saved].sort(byScheduledMoment));
-        // The group now owns these stories, so they stay out of the available
-        // list until the group is deleted.
-        handleExitScheduling(false);
+        // The group's stories go back to the available list. They are still
+        // listed in the group below, but nothing has consumed them: only the
+        // live board withholds a story from Available.
+        handleExitScheduling();
 
         const formattedDate = scheduleDate.toLocaleDateString('en-US', {
           weekday: 'long',
