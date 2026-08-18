@@ -1250,6 +1250,10 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       .map((key) => slotStories[key])
       .filter((story): story is IStory => !!story).length;
 
+    const parkedStories = Object.keys(slotStories)
+      .map((key) => slotStories[key])
+      .filter((story): story is IStory => !!story);
+
     setOriginalBoardState({ ...slotStories });
     setOriginalLayoutPreferences({ ...slotLayoutPreferences });
 
@@ -1257,6 +1261,17 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
     Object.keys(slotStories).forEach(key => {
       clearedSlots[key] = undefined;
     });
+
+    // While scheduling, parked board stories are surfaced in Available so they
+    // can be selected for the new scheduled group.
+    if (parkedStories.length > 0) {
+      setAvailableStories((prev) => {
+        const existingIds = new Set(prev.map((story) => story.id));
+        const toAdd = parkedStories.filter((story) => !existingIds.has(story.id));
+        return [...toAdd, ...prev];
+      });
+    }
+
     setSlotStories(clearedSlots);
 
     setIsSchedulingMode(true);
@@ -1267,9 +1282,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
     showToast(
       'Scheduling Mode Active',
       'info',
-      parkedCount > 0
-        ? `Main board cleared. ${parkedCount} ${parkedCount === 1 ? 'story is' : 'stories are'} parked and will be restored after scheduling.`
-        : 'Select a date below to load stories for scheduling.'
+      'Main board cleared. Select a date below to load stories for scheduling.'
     );
   };
 
@@ -1355,7 +1368,17 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       .filter((s): s is IStory => s !== undefined);
 
     if (boardStories.length === 0) {
-      showToast('No Stories to Schedule', 'error', 'Please add stories to the main board before scheduling.');
+      const selectedDate = fromDateKey(selectedScheduleDate);
+      const selectedLabel = selectedDate.toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric'
+      });
+      showToast(
+        'Date Selected for Scheduling',
+        'info',
+        `Ready to schedule 0 stories for ${selectedLabel}. Add stories to the main board, then click "Schedule Board".`
+      );
       return;
     }
 
@@ -1410,6 +1433,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
           `${boardStories.length} stories scheduled for ${formattedDate}. Original board restored.`,
           4000
         );
+        showToast('Scheduling Complete', 'info', 'Returned to normal mode. Original board layout restored.');
       })
       .catch((err) => {
         console.error('Failed to save scheduled group:', err);

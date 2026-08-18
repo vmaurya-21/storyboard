@@ -879,7 +879,7 @@ describe('StoryDragDrop Component', () => {
     });
   });
 
-  it('shows validation when scheduling with a date but empty board', async () => {
+  it('shows informational date-selected toast when scheduling with a date but empty board', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
     
     await waitFor(() => {
@@ -904,7 +904,7 @@ describe('StoryDragDrop Component', () => {
     fireEvent.click(scheduleNowBtn);
 
     await waitFor(() => {
-      expect(screen.getByText('No Stories to Schedule')).toBeInTheDocument();
+      expect(screen.getByText('Date Selected for Scheduling')).toBeInTheDocument();
     });
   });
 
