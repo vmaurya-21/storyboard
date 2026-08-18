@@ -1246,6 +1246,10 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       return;
     }
 
+    const parkedCount = Object.keys(slotStories)
+      .map((key) => slotStories[key])
+      .filter((story): story is IStory => !!story).length;
+
     setOriginalBoardState({ ...slotStories });
     setOriginalLayoutPreferences({ ...slotLayoutPreferences });
 
@@ -1259,6 +1263,14 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
     setShowCalendarOverlay(false);
     setSelectedScheduleDate('');
     setSelectedScheduleTime('09:00');
+
+    showToast(
+      'Scheduling Mode Active',
+      'info',
+      parkedCount > 0
+        ? `Main board cleared. ${parkedCount} ${parkedCount === 1 ? 'story is' : 'stories are'} parked and will be restored after scheduling.`
+        : 'Select a date below to load stories for scheduling.'
+    );
   };
 
   /**
@@ -1276,23 +1288,39 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
    * a truthy first argument.
    */
   const handleExitScheduling = (returnPlacedStories: boolean = true): void => {
+    const storiesFromBoard: IStory[] = [];
     if (returnPlacedStories) {
-      const storiesFromBoard: IStory[] = [];
       Object.keys(slotStories).forEach(key => {
         const story = slotStories[key];
         if (story) storiesFromBoard.push(story);
       });
-
-      if (storiesFromBoard.length > 0) {
-        setAvailableStories(prev => {
-          const existingIds = new Set(prev.map(s => s.id));
-          const toAdd = storiesFromBoard.filter(s => !existingIds.has(s.id));
-          return [...toAdd, ...prev];
-        });
-      }
     }
 
-    setSlotStories({ ...originalBoardState });
+    const restoredSlots: SlotStoryMap = { ...originalBoardState };
+    const restoredIds = new Set(
+      Object.keys(restoredSlots)
+        .map((key) => restoredSlots[key])
+        .filter((story): story is IStory => !!story)
+        .map((story) => story.id)
+    );
+
+    // Restoring the parked board must remove those stories from Available so a
+    // story is never present in both zones at once.
+    setAvailableStories(prev => {
+      const existingIds = new Set(prev.map(s => s.id));
+      const toAdd = storiesFromBoard.filter(
+        s => !existingIds.has(s.id) && !restoredIds.has(s.id)
+      );
+      const merged = [...toAdd, ...prev].filter(s => !restoredIds.has(s.id));
+      const seen = new Set<string>();
+      return merged.filter((story) => {
+        if (seen.has(story.id)) return false;
+        seen.add(story.id);
+        return true;
+      });
+    });
+
+    setSlotStories(restoredSlots);
     setOriginalBoardState({});
     setSlotLayoutPreferences({ ...originalLayoutPreferences });
     setOriginalLayoutPreferences({});
@@ -1376,7 +1404,12 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
           day: 'numeric',
           year: 'numeric'
         });
-        showToast('Board Scheduled Successfully!', 'success', `${boardStories.length} stories scheduled for ${formattedDate}.`, 4000);
+        showToast(
+          'Board Scheduled Successfully!',
+          'success',
+          `${boardStories.length} stories scheduled for ${formattedDate}. Original board restored.`,
+          4000
+        );
       })
       .catch((err) => {
         console.error('Failed to save scheduled group:', err);
