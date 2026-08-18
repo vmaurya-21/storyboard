@@ -3,7 +3,7 @@ import { detectStorySource, formatPublishDate, READ_TIME_LABEL } from '../../car
 describe('storyHelpers', () => {
   it('classifies LinkedIn and external/internal domains', () => {
     expect(detectStorySource('https://www.linkedin.com/posts/x')).toEqual({ source: 'linkedin', domain: 'linkedin.com' });
-    expect(detectStorySource('https://whitecase.sharepoint.com/sites/comms')).toEqual({ source: 'internal', domain: 'whitecase.sharepoint.com' });
+    expect(detectStorySource('https://whitecasempsaemea.sharepoint.com/sites/comms')).toEqual({ source: 'internal', domain: 'whitecasempsaemea.sharepoint.com' });
     expect(detectStorySource('https://contoso.sharepoint.com/sites/comms')).toEqual({ source: 'external', domain: 'contoso.sharepoint.com' });
     expect(detectStorySource('https://whitecase.com/a')).toEqual({ source: 'external', domain: 'whitecase.com' });
     expect(detectStorySource('https://news.example.com/a')).toEqual({ source: 'external', domain: 'news.example.com' });

@@ -137,7 +137,7 @@ describe('availableStoriesService', () => {
 
   describe('deriveSourceFromUrl', () => {
     it('classifies SharePoint domains as internal and whitecase.com as external', () => {
-      expect(deriveSourceFromUrl('https://whitecase.sharepoint.com/sites/comms')).toBe('internal');
+      expect(deriveSourceFromUrl('https://whitecasempsaemea.sharepoint.com/sites/comms')).toBe('internal');
       expect(deriveSourceFromUrl('https://contoso.sharepoint.com/sites/comms')).toBe('external');
       expect(deriveSourceFromUrl('https://whitecase.com/news')).toBe('external');
       expect(deriveSourceFromUrl('https://sub.whitecase.com/news')).toBe('external');

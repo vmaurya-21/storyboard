@@ -76,7 +76,7 @@ interface ISharePointStoryItem {
 export const DEFAULT_AVAILABLE_STORIES_LIST_NAME = "AvailableStories";
 
 let availableStoriesListName = DEFAULT_AVAILABLE_STORIES_LIST_NAME;
-const WC_SHAREPOINT_HOST = "whitecase.sharepoint.com";
+const WC_SHAREPOINT_HOST = "whitecasempsaemea.sharepoint.com";
 
 /**
  * Override the SharePoint list title used by this service.

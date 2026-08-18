@@ -9,7 +9,7 @@ export interface IStorySourceInfo {
   domain?: string;
 }
 
-const WC_SHAREPOINT_HOST = 'whitecase.sharepoint.com';
+const WC_SHAREPOINT_HOST = 'whitecasempsaemea.sharepoint.com';
 
 /**
  * Classifies a story's post link as internal, LinkedIn or external.
@@ -18,7 +18,7 @@ const WC_SHAREPOINT_HOST = 'whitecase.sharepoint.com';
  *
  * - any `*.linkedin.com` host is `linkedin`, reported with the canonical
  *   domain `linkedin.com` rather than the subdomain;
- * - `whitecase.sharepoint.com` and its subdomains are `internal`;
+ * - `whitecasempsaemea.sharepoint.com` and its subdomains are `internal`;
  * - `whitecase.com` and all of its subdomains are `external`;
  * - anything else is `external`.
  *
@@ -35,8 +35,8 @@ const WC_SHAREPOINT_HOST = 'whitecase.sharepoint.com';
  * detectStorySource('https://www.linkedin.com/posts/x');
  * // => { source: 'linkedin', domain: 'linkedin.com' }
  *
- * detectStorySource('https://whitecase.sharepoint.com/sites/comms');
- * // => { source: 'internal', domain: 'whitecase.sharepoint.com' }
+ * detectStorySource('https://whitecasempsaemea.sharepoint.com/sites/comms');
+ * // => { source: 'internal', domain: 'whitecasempsaemea.sharepoint.com' }
  * ```
  */
 export const detectStorySource = (url?: string): IStorySourceInfo => {

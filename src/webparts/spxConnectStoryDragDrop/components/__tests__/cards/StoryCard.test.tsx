@@ -94,7 +94,7 @@ describe('StoryCard Component', () => {
 
     render(
       <StoryCard
-        story={{ ...mockStory, linkToPost: 'https://whitecase.sharepoint.com/sites/comms/page' }}
+        story={{ ...mockStory, linkToPost: 'https://whitecasempsaemea.sharepoint.com/sites/comms/page' }}
         variant="large"
       />
     );
