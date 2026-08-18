@@ -12,6 +12,7 @@ import {
   setGroupStatus,
   serializeBoardState,
   toDateKey,
+  toScheduledMoment,
   updateScheduledGroup,
 } from '../scheduleStoriesService';
 import * as availableStoriesService from '../availableStoriesService';
@@ -121,6 +122,124 @@ describe('scheduleStoriesService', () => {
     expect(rows[0].spId).toBe(10);
     expect(rows[0].time).toBe('14:30');
     expect(rows[0].slotStories['slot-1']?.title).toBe('Test Story 1');
+  });
+
+  describe('timezone handling', () => {
+    /** Wires `getSp` to a rows-returning mock and returns the mapped groups. */
+    const readRows = async (rows: unknown[]) => {
+      const itemsApi = {
+        select: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        top: jest.fn().mockReturnValue(jest.fn().mockResolvedValue(rows)),
+      };
+      (availableStoriesService.getSp as jest.Mock).mockReturnValue({
+        web: { lists: { getByTitle: jest.fn().mockReturnValue({ items: itemsApi }) } },
+      } as any);
+
+      return getScheduledGroups();
+    };
+
+    const boardState = (extra: Record<string, unknown> = {}) =>
+      JSON.stringify({
+        layoutType: 'connectHomepage',
+        layoutName: 'Connect Homepage',
+        scheduleDate: '2026-07-30',
+        time: '14:30',
+        slots: [{ slotId: 'slot-1', story: mockStories[0] }],
+        ...extra,
+      });
+
+    it('turns an author wall clock into an instant, with zone and offset', () => {
+      const moment = toScheduledMoment('2026-07-30', '14:30');
+      const local = new Date(2026, 6, 30, 14, 30, 0, 0);
+
+      // The instant is whatever 14:30 on that day means where this runs.
+      expect(moment.utcIso).toBe(local.toISOString());
+      expect(moment.utcIso.endsWith('Z')).toBe(true);
+      expect(moment.offsetMinutes).toBe(-local.getTimezoneOffset());
+      expect(typeof moment.timeZone).toBe('string');
+    });
+
+    it('writes the instant, zone and offset when a group is created', async () => {
+      const add = jest.fn().mockResolvedValue({ data: { Id: 42, Created: '2026-07-01T10:00:00.000Z' } });
+      (availableStoriesService.getSp as jest.Mock).mockReturnValue({
+        web: { lists: { getByTitle: jest.fn().mockReturnValue({ items: { add } }) } },
+      } as any);
+
+      const saved = await createScheduledGroup({
+        id: 'scheduled-1',
+        date: new Date(2026, 6, 30),
+        time: '14:30',
+        slotStories: { 'slot-1': mockStories[0] },
+        layoutType: 'connectHomepage',
+      });
+
+      const payload = add.mock.calls[0][0];
+      const expected = toScheduledMoment('2026-07-30', '14:30');
+      expect(payload.ScheduledDateTimeUtc).toBe(expected.utcIso);
+      expect(payload.ScheduledTimeZone).toBe(expected.timeZone);
+      expect(payload.ScheduledOffsetMinutes).toBe(expected.offsetMinutes);
+      // Mirrored into the JSON as well, so a disturbed column can be recovered.
+      expect(JSON.parse(payload.BoardStateJson).scheduledAtUtc).toBe(expected.utcIso);
+      expect(saved.scheduledAtUtc.toISOString()).toBe(expected.utcIso);
+    });
+
+    it('reads the stored instant back as the viewer local day and time', async () => {
+      // 03:30Z — a deliberately different wall clock from the JSON's civil
+      // values, so the column has to be what wins.
+      const instant = '2026-07-30T03:30:00Z';
+      const rows = await readRows([
+        {
+          Id: 10,
+          GroupId: 'scheduled-10',
+          ScheduledDateTimeUtc: instant,
+          ScheduledTimeZone: 'Asia/Kolkata',
+          ScheduledOffsetMinutes: 330,
+          BoardStateJson: boardState(),
+          Status: 'Scheduled',
+        },
+      ]);
+
+      const local = new Date(instant);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].scheduledAtUtc.toISOString()).toBe(local.toISOString());
+      expect(rows[0].authorTimeZone).toBe('Asia/Kolkata');
+      expect(rows[0].authorOffsetMinutes).toBe(330);
+      // Whatever zone this runs in, the civil parts describe that same instant.
+      expect(rows[0].date.getDate()).toBe(local.getDate());
+      expect(rows[0].time).toBe(
+        `${`0${local.getHours()}`.slice(-2)}:${`0${local.getMinutes()}`.slice(-2)}`
+      );
+    });
+
+    it('falls back to the JSON mirror when the column is missing', async () => {
+      const instant = '2026-07-30T03:30:00Z';
+      const rows = await readRows([
+        {
+          Id: 11,
+          GroupId: 'scheduled-11',
+          BoardStateJson: boardState({ scheduledAtUtc: instant, timeZone: 'Europe/London', offsetMinutes: 60 }),
+        },
+      ]);
+
+      expect(rows[0].scheduledAtUtc.toISOString()).toBe(new Date(instant).toISOString());
+      expect(rows[0].authorTimeZone).toBe('Europe/London');
+    });
+
+    it('reads legacy rows with no instant as local civil time, unchanged', async () => {
+      const rows = await readRows([
+        {
+          Id: 12,
+          GroupId: 'scheduled-12',
+          BoardStateJson: boardState(),
+        },
+      ]);
+
+      // Pre-migration behaviour: the stored wall clock is shown as-is.
+      expect(rows[0].time).toBe('14:30');
+      expect(toDateKey(rows[0].date)).toBe('2026-07-30');
+      expect(rows[0].scheduledAtUtc.toISOString()).toBe(new Date(2026, 6, 30, 14, 30).toISOString());
+    });
   });
 
   it('creates a scheduled group and returns persisted shape', async () => {

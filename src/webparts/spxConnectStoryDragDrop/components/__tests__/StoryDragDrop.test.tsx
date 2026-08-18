@@ -46,6 +46,7 @@ jest.mock('../layouts/LayoutRenderer', () => ({ onRemoveStory, slotLayoutPrefere
     data-testid="layout-renderer"
     data-slot1-layout={(slotLayoutPreferences || {})['slot-1'] || ''}
     data-slot1-title={(slotStories || {})['slot-1']?.title || ''}
+    data-slot2-title={(slotStories || {})['slot-2']?.title || ''}
   >
     <button onClick={() => onRemoveStory('slot-1')}>Remove</button>
   </div>
@@ -608,6 +609,8 @@ describe('StoryDragDrop Component', () => {
 
     await waitFor(() => {
       expect(availableStoriesService.deleteStory).toHaveBeenCalled();
+      // Wording is specified, so it is asserted verbatim.
+      expect(screen.getByText('Story successfully deleted.')).toBeInTheDocument();
     });
   });
 
@@ -658,6 +661,82 @@ describe('StoryDragDrop Component', () => {
       expect(screen.getByText('Board Cleared')).toBeInTheDocument();
     });
     expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-layout', '');
+  });
+
+  it('keeps board unchanged when clear confirmation is cancelled', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      slotStories: {
+        'slot-1': mockStories[0],
+      },
+      slotLayoutPreferences: {
+        'slot-1': 'thumbnail-text',
+      },
+    });
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    const availableList = screen.getByTestId('sortable-context');
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-title', 'Test Story 1');
+    expect(within(availableList).queryByText('Test Story 1')).not.toBeInTheDocument();
+    expect(within(availableList).getByText('Test Story 2')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/Clear Board/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByText('Clear all stories from the board?')).not.toBeInTheDocument();
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-title', 'Test Story 1');
+    expect(within(availableList).queryByText('Test Story 1')).not.toBeInTheDocument();
+    expect(within(availableList).getByText('Test Story 2')).toBeInTheDocument();
+  });
+
+  it('returns all board stories to Available Stories after clear', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      slotStories: {
+        'slot-1': mockStories[0],
+      },
+      slotLayoutPreferences: {
+        'slot-1': 'thumbnail-text',
+      },
+    });
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    const availableList = screen.getByTestId('sortable-context');
+    expect(within(availableList).queryByText('Test Story 1')).not.toBeInTheDocument();
+    expect(within(availableList).getByText('Test Story 2')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/Clear Board/i));
+    fireEvent.click(screen.getByText('Yes, Clear Board'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Board Cleared')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-title', '');
+    expect(within(availableList).getByText('Test Story 1')).toBeInTheDocument();
+    expect(within(availableList).getByText('Test Story 2')).toBeInTheDocument();
+
+    const availableTitles = within(availableList)
+      .getAllByRole('heading', { level: 4 })
+      .map((el) => el.textContent);
+    // All three mock stories: the two that were never placed, plus the one the
+    // clear returned from slot-1.
+    expect(availableTitles).toHaveLength(3);
+    expect(availableTitles).toEqual(
+      expect.arrayContaining(['Test Story 1', 'Test Story 2', 'Test Story 3'])
+    );
   });
 
   it('enters and exits scheduling mode', async () => {
@@ -829,26 +908,87 @@ describe('StoryDragDrop Component', () => {
     });
   });
 
-  it('shows validation when scheduling without selecting a date', async () => {
+  it('keeps the Schedule confirm button disabled until a date is picked', async () => {
     render(<StoryDragDrop context={mockContext as any} />);
-    
+
     await waitFor(() => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
-    const scheduleBtn = screen.getByText(/Schedule New Group/i);
-    fireEvent.click(scheduleBtn);
-    
-    const dateTimeBtn = screen.getByText(/Select date & time/i);
-    fireEvent.click(dateTimeBtn);
+    fireEvent.click(screen.getByText(/Schedule New Group/i));
+    fireEvent.click(screen.getByText(/Select date & time/i));
 
-    const scheduleNowBtn = screen.getByText('Schedule');
-    
+    const scheduleNowBtn = screen.getByText('Schedule', { selector: 'button' });
+    expect(scheduleNowBtn).toBeDisabled();
+
     fireEvent.click(scheduleNowBtn);
+    expect(scheduleStoriesService.createScheduledGroup).not.toHaveBeenCalled();
+
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    fireEvent.click(screen.getByText(String(tomorrow.getDate()), { selector: 'button' }));
+
+    expect(scheduleNowBtn).toBeEnabled();
+  });
+
+  it('leaves today selectable and rejects a time that has already passed', async () => {
+    render(<StoryDragDrop context={mockContext as any} />);
 
     await waitFor(() => {
-      expect(screen.getByText('No Date Selected')).toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
+
+    fireEvent.click(screen.getByText(/Schedule New Group/i));
+
+    act(() => {
+      mockOnDragEnd!({
+        active: {
+          id: 'story-1',
+          data: { current: { sortable: { containerId: 'available-stories' } } },
+        },
+        over: { id: 'slot-1' },
+      });
+    });
+
+    fireEvent.click(screen.getByText(/Select date & time/i));
+
+    const today = screen.getByText(String(new Date().getDate()), { selector: 'button' });
+    expect(today).toBeEnabled();
+    fireEvent.click(today);
+
+    // Midnight today is behind us for all but an instant, so this is the
+    // deterministic way to land on a past moment.
+    fireEvent.change(screen.getByLabelText(/^Time$/i), { target: { value: '00:00' } });
+    fireEvent.click(screen.getByText('Schedule', { selector: 'button' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Time Already Passed')).toBeInTheDocument();
+    });
+    expect(scheduleStoriesService.createScheduledGroup).not.toHaveBeenCalled();
+  });
+
+  it('disables Schedule New Group with a reason at the ten-group cap', async () => {
+    (scheduleStoriesService.getScheduledGroups as jest.Mock).mockResolvedValueOnce(
+      Array.from({ length: 10 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() + i + 1);
+        return buildScheduledGroup({ id: `scheduled-${i}`, date });
+      })
+    );
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    // Present rather than hidden, so the cap is explained.
+    const scheduleBtn = screen.getByText(/Schedule New Group/i).closest('button');
+    expect(scheduleBtn).toBeDisabled();
+    expect(scheduleBtn).toHaveAttribute(
+      'title',
+      'Maximum of 10 scheduled groups reached. Delete a group to schedule another.'
+    );
   });
 
   it('deletes a scheduled group', async () => {
@@ -979,7 +1119,7 @@ describe('StoryDragDrop Component', () => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
 
-    const searchInput = screen.getByRole('textbox', { name: /Search available stories/i });
+    const searchInput = screen.getByRole('searchbox', { name: /Search available stories/i });
     fireEvent.change(searchInput, { target: { value: 'Story 1' } });
     
     expect(screen.getByText('Test Story 1')).toBeInTheDocument();
@@ -1003,7 +1143,7 @@ describe('StoryDragDrop Component', () => {
       });
     });
 
-    const searchInput = screen.getByRole('textbox', { name: /Search available stories/i });
+    const searchInput = screen.getByRole('searchbox', { name: /Search available stories/i });
     fireEvent.change(searchInput, { target: { value: 'Story 1' } });
 
     expect(screen.queryByText('Test Story 1')).not.toBeInTheDocument();
@@ -1290,6 +1430,7 @@ describe('StoryDragDrop Component', () => {
     });
 
     fireEvent.click(screen.getByText(/Publish Board/i));
+    fireEvent.click(screen.getByText('Yes, Publish Board'));
 
     await waitFor(() => {
       expect(publishStoriesService.publishBoard).toHaveBeenCalled();
@@ -1323,10 +1464,36 @@ describe('StoryDragDrop Component', () => {
     });
 
     fireEvent.click(screen.getByText(/Publish Board/i));
+    fireEvent.click(screen.getByText('Yes, Publish Board'));
 
     await waitFor(() => {
       expect(screen.getByText('Publish Failed')).toBeInTheDocument();
     });
+  });
+
+  it('does not publish when the publish confirmation is cancelled', async () => {
+    (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
+      layoutType: 'connectHomepage',
+      layoutName: 'Connect Homepage',
+      slotStories: {
+        'slot-1': mockStories[0],
+      },
+      slotLayoutPreferences: {},
+    });
+
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/Publish Board/i));
+    expect(screen.getByText('Publish this board live?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Cancel'));
+
+    expect(screen.queryByText('Publish this board live?')).not.toBeInTheDocument();
+    expect(publishStoriesService.publishBoard).not.toHaveBeenCalled();
   });
 
   it('shows delete failure toast when deleting a scheduled group fails', async () => {
@@ -1406,6 +1573,202 @@ describe('StoryDragDrop Component', () => {
 
     fireEvent.click(screen.getByLabelText(/Clear search/i));
     expect(searchInput.value).toBe('');
+    expect(screen.getByText('Test Story 1')).toBeInTheDocument();
+    expect(screen.getByText('Test Story 2')).toBeInTheDocument();
+  });
+
+  it('returns focus to the search field after the clear button removes itself', async () => {
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    const searchInput = screen.getByPlaceholderText(/Search stories by title/i);
+    fireEvent.change(searchInput, { target: { value: 'Story 1' } });
+
+    const clearButton = screen.getByLabelText(/Clear search/i);
+    clearButton.focus();
+    expect(clearButton).toHaveFocus();
+
+    fireEvent.click(clearButton);
+
+    // The button is gone with the term, so focus has to land back on the input
+    // rather than falling to <body>.
+    expect(screen.queryByLabelText(/Clear search/i)).not.toBeInTheDocument();
+    expect(searchInput).toHaveFocus();
+  });
+
+  it('clears the search term when Escape is pressed in the search field', async () => {
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    const searchInput = screen.getByPlaceholderText(/Search stories by title/i) as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: 'Story 1' } });
+    expect(screen.queryByText('Test Story 2')).not.toBeInTheDocument();
+
+    fireEvent.keyDown(searchInput, { key: 'Escape' });
+
+    expect(searchInput.value).toBe('');
+    expect(screen.getByText('Test Story 2')).toBeInTheDocument();
+  });
+
+  it('ignores surrounding whitespace in the search term', async () => {
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    const searchInput = screen.getByPlaceholderText(/Search stories by title/i);
+    fireEvent.change(searchInput, { target: { value: '  story 1  ' } });
+
+    expect(screen.getByText('Test Story 1')).toBeInTheDocument();
+    expect(screen.queryByText(/No stories found matching/i)).not.toBeInTheDocument();
+  });
+
+  it('leaves the list unfiltered for a whitespace-only search term', async () => {
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText(/Search stories by title/i), {
+      target: { value: '   ' },
+    });
+
+    expect(screen.getByText('Test Story 1')).toBeInTheDocument();
+    expect(screen.getByText('Test Story 2')).toBeInTheDocument();
+  });
+
+  it('announces the filtered result count in a live region', async () => {
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    const searchInput = screen.getByPlaceholderText(/Search stories by title/i);
+    // Silent until the user searches, so the region does not announce on load.
+    expect(document.querySelector('[aria-live="polite"]')).toBeEmptyDOMElement();
+
+    fireEvent.change(searchInput, { target: { value: 'Story 1' } });
+    expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent('1 story found');
+
+    fireEvent.change(searchInput, { target: { value: 'Story' } });
+    expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent('3 stories found');
+
+    fireEvent.change(searchInput, { target: { value: 'Nonexistent' } });
+    expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent('0 stories found');
+  });
+
+  it('clears an active search after a story is added so the new story is visible', async () => {
+    render(<StoryDragDrop context={mockContext as any} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    const searchInput = screen.getByPlaceholderText(/Search stories by title/i) as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: 'Story 1' } });
+
+    fireEvent.click(screen.getByText(/Add story/i));
+    fireEvent.click(within(screen.getByTestId('add-story-modal')).getByText('Add'));
+
+    await waitFor(() => {
+      expect(availableStoriesService.createStory).toHaveBeenCalled();
+    });
+
+    expect(searchInput.value).toBe('');
+    expect(screen.getByText('Test Story 2')).toBeInTheDocument();
+  });
+
+  describe('board occupants stay out of Available Stories', () => {
+    /** Renders with Test Story 1 published into slot-1. */
+    const renderWithPlacedStory = async () => {
+      (publishStoriesService.getLiveBoard as jest.Mock).mockResolvedValue({
+        layoutType: 'connectHomepage',
+        layoutName: 'Connect Homepage',
+        slotStories: { 'slot-1': mockStories[0] },
+        slotLayoutPreferences: {},
+      });
+
+      render(<StoryDragDrop context={mockContext as any} />);
+
+      await waitFor(() => {
+        expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      });
+
+      const availableList = screen.getByTestId('sortable-context');
+      expect(within(availableList).queryByText('Test Story 1')).not.toBeInTheDocument();
+      return availableList;
+    };
+
+    it('keeps a placed story out of the list after another story is added', async () => {
+      const availableList = await renderWithPlacedStory();
+
+      fireEvent.click(screen.getByText(/Add story/i));
+      fireEvent.click(within(screen.getByTestId('add-story-modal')).getByText('Add'));
+
+      await waitFor(() => {
+        expect(availableStoriesService.createStory).toHaveBeenCalled();
+      });
+
+      expect(within(availableList).queryByText('Test Story 1')).not.toBeInTheDocument();
+      expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-title', 'Test Story 1');
+    });
+
+    it('keeps a placed story out of the list after a story is edited', async () => {
+      const availableList = await renderWithPlacedStory();
+
+      fireEvent.click(within(availableList).getAllByLabelText(/Edit story/i)[0]);
+      fireEvent.click(within(screen.getByTestId('edit-story-modal')).getByText('Update'));
+
+      await waitFor(() => {
+        expect(availableStoriesService.updateStory).toHaveBeenCalled();
+      });
+
+      expect(within(availableList).queryByText('Test Story 1')).not.toBeInTheDocument();
+      expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-title', 'Test Story 1');
+    });
+
+    it('keeps a placed story out of the list after a story is deleted', async () => {
+      const availableList = await renderWithPlacedStory();
+
+      fireEvent.click(within(availableList).getAllByLabelText(/Edit story/i)[0]);
+      fireEvent.click(within(screen.getByTestId('edit-story-modal')).getByText('Delete'));
+
+      await waitFor(() => {
+        expect(availableStoriesService.deleteStory).toHaveBeenCalled();
+      });
+
+      expect(within(availableList).queryByText('Test Story 1')).not.toBeInTheDocument();
+      expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-title', 'Test Story 1');
+    });
+
+    it('does not duplicate a placed story into a second slot', async () => {
+      await renderWithPlacedStory();
+
+      // Now that the list never holds a placed story, the drop is stopped by the
+      // "not in Available" check before it reaches the duplicate guard. Asserted
+      // on the outcome so either line keeps it honest.
+      act(() => {
+        mockOnDragEnd!({
+          active: {
+            id: 'story-1',
+            data: { current: { sortable: { containerId: 'available-stories' } } },
+          },
+          over: { id: 'slot-2' },
+        });
+      });
+
+      expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot1-title', 'Test Story 1');
+      expect(screen.getByTestId('layout-renderer')).toHaveAttribute('data-slot2-title', '');
+    });
   });
 
   it('shows empty available-state and disabled scheduling when no stories are loaded', async () => {

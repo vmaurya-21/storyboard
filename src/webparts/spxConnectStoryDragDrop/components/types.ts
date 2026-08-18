@@ -124,10 +124,25 @@ export interface ScheduledStoryGroup {
   id: string;
   /** SharePoint list item id — present once the group is persisted. */
   spId?: number;
-  /** Local date the group is scheduled for. The time component is unused. */
+  /**
+   * Local date the group is scheduled for. The time component is unused.
+   *
+   * This and {@link ScheduledStoryGroup.time} are the *viewer's* rendering of
+   * {@link ScheduledStoryGroup.scheduledAtUtc}: an admin in another timezone
+   * sees the same instant as a different day and hour.
+   */
   date: Date;
-  /** Scheduled time of day in 24-hour `HH:mm` form. */
+  /** Scheduled time of day in 24-hour `HH:mm` form, in the viewer's zone. */
   time: string;
+  /**
+   * The absolute instant the group is scheduled for. Absent only on groups
+   * held in memory before their first save.
+   */
+  scheduledAtUtc?: Date;
+  /** IANA zone the group was scheduled from, e.g. `Asia/Kolkata`. */
+  authorTimeZone?: string;
+  /** The author zone's offset from UTC, in minutes, at that instant. */
+  authorOffsetMinutes?: number;
   /** The slot-to-story arrangement captured when the group was saved. */
   slotStories: SlotStoryMap;
   /** Per-slot card layout overrides captured alongside the arrangement. */

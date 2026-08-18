@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -39,6 +39,7 @@ import {
   setScheduledStoriesListName,
   fromDateKey,
   toDateKey,
+  toScheduledMoment,
 } from '../services/scheduleStoriesService';
 import { publishBoard, getLiveBoard, setPublishedStoriesListName } from '../services/publishStoriesService';
 import { IWebPartContext } from '@microsoft/sp-webpart-base';
@@ -60,19 +61,45 @@ interface IBoardDraft {
 }
 
 /**
- * Whether a calendar day has already begun.
+ * Whether a calendar day is behind today.
  *
- * The whole matcher the reference gives its scheduling calendar. Cells arrive
- * as local midnight and the comparison is against the current instant rather
- * than today's midnight, so *today is never selectable* — the earliest
- * schedulable day is tomorrow. That is also what keeps a group from being
- * scheduled into an hour that has already passed, since the time field itself
- * is unvalidated.
+ * Day-granular on purpose: cells arrive as local midnight, and comparing them
+ * against today's midnight rather than the current instant keeps *today*
+ * selectable, so a board can still be scheduled for later the same day. The
+ * hour is then policed separately by {@link isMomentPast}.
  *
  * @param date - Local midnight of the day being tested.
  * @returns `true` when the day must be disabled.
  */
-const isDayPast = (date: Date): boolean => date < new Date();
+const isDayPast = (date: Date): boolean => {
+  const now = new Date();
+  return date < new Date(now.getFullYear(), now.getMonth(), now.getDate());
+};
+
+/**
+ * Whether a chosen day and time is already behind us.
+ *
+ * The companion to {@link isDayPast}: with today selectable, this is what stops
+ * a group being scheduled into an hour that has already passed.
+ *
+ * @param date - Day being scheduled; only its date parts are read.
+ * @param time - Time of day as `HH:mm`. Unparseable parts count as zero.
+ * @returns `true` when the moment is now or earlier.
+ */
+const isMomentPast = (date: Date, time: string): boolean => {
+  const parts = time.split(':');
+  const hr = parseInt(parts[0], 10);
+  const min = parseInt(parts[1], 10);
+  const moment = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    isNaN(hr) ? 0 : hr,
+    isNaN(min) ? 0 : min
+  );
+
+  return moment.getTime() <= new Date().getTime();
+};
 
 /**
  * Orders scheduled groups soonest first, the order the service reads them in.
@@ -85,8 +112,16 @@ const isDayPast = (date: Date): boolean => date < new Date();
  * and keeps the hour in `time`, while saving an edit folds the hour into the
  * `Date`. Reading local parts and pairing them with `time` sorts both alike.
  */
-const byScheduledMoment = (a: ScheduledStoryGroup, b: ScheduledStoryGroup): number =>
-  `${toDateKey(a.date)}T${a.time}`.localeCompare(`${toDateKey(b.date)}T${b.time}`);
+const byScheduledMoment = (a: ScheduledStoryGroup, b: ScheduledStoryGroup): number => {
+  // Instants when both carry one: exact, and immune to the hour that repeats
+  // itself when local clocks go back. The civil comparison below is the
+  // fallback for a group not yet round-tripped through the service.
+  if (a.scheduledAtUtc && b.scheduledAtUtc) {
+    return a.scheduledAtUtc.getTime() - b.scheduledAtUtc.getTime();
+  }
+
+  return `${toDateKey(a.date)}T${a.time}`.localeCompare(`${toDateKey(b.date)}T${b.time}`);
+};
 
 /**
  * Whether a calendar day cannot be rescheduled onto: it has already begun, or
@@ -160,6 +195,26 @@ const formatStories = (stories: IStoryItem[]): IStory[] =>
     source: story.source || '',
     author: story.author || undefined,
   }));
+
+/**
+ * Drops the stories that are currently sitting in board slots.
+ *
+ * The re-read that follows a write returns the whole list, board occupants
+ * included. Without this they reappear under Available while still on the
+ * board, where they can be dragged into a second slot and published twice.
+ *
+ * @param stories - Freshly fetched list.
+ * @param slots - Slot map whose occupants should be held back.
+ */
+const excludePlacedStories = (stories: IStory[], slots: SlotStoryMap): IStory[] => {
+  const placedIds = new Set(
+    Object.keys(slots)
+      .map((slotId) => slots[slotId]?.id)
+      .filter((id): id is string => !!id)
+  );
+
+  return stories.filter((story) => !placedIds.has(story.id));
+};
 
 const mergeSlotStoriesWithLatest = (
   slots: SlotStoryMap,
@@ -417,6 +472,9 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
   const [groupToDelete, setGroupToDelete] = useState<ScheduledStoryGroup | null>(null);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+  const [isPublishConfirmOpen, setIsPublishConfirmOpen] = useState(false);
+  /** Search field, so clearing it can hand focus back. */
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [baselineSnapshot, setBaselineSnapshot] = useState<string | null>(null);
 
   const localDraftKey = useMemo(
@@ -440,6 +498,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
   );
   const isResetDisabled = isSchedulingMode || isGroupEditingMode || !hasUnsavedChanges;
   const isClearDisabled = isSchedulingMode || isGroupEditingMode || !hasStoriesOnBoard;
+  const isAtScheduleLimit = scheduledGroups.length >= MAX_SCHEDULED_GROUPS;
 
 
   /**
@@ -735,6 +794,13 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       if (!story) return;
       if (overId === 'available-stories') return;
 
+      // Belt and braces against the same story landing in two slots: nothing on
+      // the board should be in Available to begin with, so this only fires if
+      // some path lets a placed story back into the list.
+      if (Object.keys(slotStories).some(key => slotStories[key]?.id === story.id)) {
+        return;
+      }
+
       const destSlot = resolveDestSlot(overId);
       if (!destSlot) return;
 
@@ -817,8 +883,11 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       return getStories();
     }).then((stories) => {
       const formattedStories = formatStories(stories);
-      setAvailableStories(formattedStories);
+      setAvailableStories(excludePlacedStories(formattedStories, slotStories));
       setIsModalOpen(false);
+      // An active filter would otherwise hide the story that was just added,
+      // against a toast saying it succeeded.
+      setSearchTerm('');
 
       const { source, domain } = detectStorySource(story.linkToPost);
       const sourceLabel = source === 'linkedin' ? 'LinkedIn' : source === 'external' ? 'External' : 'Internal';
@@ -875,8 +944,8 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       return getStories();
     }).then((stories) => {
       const formattedStories = formatStories(stories);
-      setAvailableStories(formattedStories);
-      
+      setAvailableStories(excludePlacedStories(formattedStories, slotStories));
+
       const newSlotStories = { ...slotStories };
       Object.keys(newSlotStories).forEach(key => {
         const updatedSlotStory = formattedStories.find(s => s.id === newSlotStories[key]?.id);
@@ -918,20 +987,23 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
     deleteStory(numericId).then(() => {
       return getStories();
     }).then((stories) => {
-      setAvailableStories(formatStories(stories));
-      
       const newSlotStories = { ...slotStories };
       Object.keys(newSlotStories).forEach(key => {
         if (newSlotStories[key]?.id === storyId) {
           delete newSlotStories[key];
         }
       });
+
+      // Filtered against the post-delete slots, so a story deleted while placed
+      // is not held back from a list it is no longer in anyway.
+      setAvailableStories(excludePlacedStories(formatStories(stories), newSlotStories));
       setSlotStories(newSlotStories);
       setEditingStory(null);
-      // Reference: `toast.success("Story deleted successfully!")` passes no
+      // Wording is the one the spec calls for, in deliberate deviation from the
+      // reference's "Story deleted successfully!". The reference passes no
       // duration, so sonner's own 4000ms default applies rather than the 3000
       // the explicit calls use.
-      showToast('Story deleted successfully!', 'success', undefined, 4000);
+      showToast('Story successfully deleted.', 'success', undefined, 4000);
     }).catch((err) => {
       console.error('Failed to delete story:', err);
       showToast('Failed to delete story', 'error', err.message || 'Unknown error');
@@ -1128,6 +1200,17 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
    * slots to give the new schedule a blank arrangement to build.
    */
   const handleScheduleGroup = (): void => {
+    // The button is disabled at the cap, so this is the backstop that keeps the
+    // limit explained rather than silent if that `disabled` is ever removed.
+    if (isAtScheduleLimit) {
+      showToast(
+        'Maximum Groups Reached',
+        'error',
+        `You can only have up to ${MAX_SCHEDULED_GROUPS} scheduled groups. Please remove a group first.`
+      );
+      return;
+    }
+
     setOriginalBoardState({ ...slotStories });
     setOriginalLayoutPreferences({ ...slotLayoutPreferences });
 
@@ -1213,12 +1296,18 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       return;
     }
 
-    if (scheduledGroups.length >= MAX_SCHEDULED_GROUPS) {
+    if (isAtScheduleLimit) {
       showToast('Maximum Groups Reached', 'error', `You can only have up to ${MAX_SCHEDULED_GROUPS} scheduled groups. Please remove a group first.`);
       return;
     }
 
     const scheduleDate = fromDateKey(selectedScheduleDate);
+
+    // Today is a selectable day, so the hour has to be checked separately.
+    if (isMomentPast(scheduleDate, selectedScheduleTime)) {
+      showToast('Time Already Passed', 'error', 'Pick a date and time in the future.');
+      return;
+    }
     const dateTaken = scheduledGroups.some(
       g => g.date.toDateString() === scheduleDate.toDateString()
     );
@@ -1458,6 +1547,15 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       newDate = new Date(y, m, d, hr, min);
     }
 
+    // Only when the moment actually moved: a group whose slot has already
+    // passed must still accept edits to its stories and layout.
+    const movedMoment =
+      `${toDateKey(newDate)}T${rescheduleTime}` !== `${toDateKey(group.date)}T${group.time}`;
+    if (movedMoment && isMomentPast(newDate, rescheduleTime)) {
+      showToast('Time Already Passed', 'error', 'Pick a date and time in the future.');
+      return;
+    }
+
     // The reschedule calendar already disables days another group holds, so
     // this is the backstop for a state that changed under it — the reference
     // runs the same check at its own commit point.
@@ -1471,10 +1569,23 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
 
     const newSlotStories = { ...slotStories };
 
+    // Recomputed rather than carried over: the stale instant would otherwise
+    // outrank the new date in `byScheduledMoment` until the next reload.
+    const nextMoment = toScheduledMoment(toDateKey(newDate), rescheduleTime);
+
     const applyLocal = (): void => {
       setScheduledGroups(prev => prev.map(g =>
         g.id === editingGroupId
-          ? { ...g, slotStories: newSlotStories, slotLayoutPreferences: { ...slotLayoutPreferences }, date: newDate, time: rescheduleTime }
+          ? {
+            ...g,
+            slotStories: newSlotStories,
+            slotLayoutPreferences: { ...slotLayoutPreferences },
+            date: newDate,
+            time: rescheduleTime,
+            scheduledAtUtc: new Date(nextMoment.utcIso),
+            authorTimeZone: nextMoment.timeZone || undefined,
+            authorOffsetMinutes: nextMoment.offsetMinutes,
+          }
           : g
       ).sort(byScheduledMoment));
       handleExitGroupEditingMode();
@@ -1516,11 +1627,18 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
    * confirmed, this port carries date and arrangement to the server together.
    */
   const handleConfirmReschedule = (): void => {
-    setShowRescheduleCalendar(false);
     const parts = rescheduleDate.split('-');
     const rescheduledDate = rescheduleDate
       ? new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
       : new Date();
+
+    // Left open, so the admin can correct the time rather than lose the picker.
+    if (isMomentPast(rescheduledDate, rescheduleTime)) {
+      showToast('Time Already Passed', 'error', 'Pick a date and time in the future.');
+      return;
+    }
+
+    setShowRescheduleCalendar(false);
     const formattedDate = rescheduledDate.toLocaleDateString('en-US', {
       weekday: 'long',
       month: 'short',
@@ -1531,26 +1649,15 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
   };
 
   /**
-   * Publishes the board live.
+   * Publishes the board live, once {@link handlePublishBoardClick} has confirmed.
    *
    * Supersedes the previous live board and writes an immutable snapshot of the
-   * slots, their per-slot layouts and the layout preset. An empty board is
-   * rejected with a toast rather than published.
+   * slots, their per-slot layouts and the layout preset.
    */
   const handlePublishBoard = (): void => {
     const boardStories = Object.keys(slotStories)
       .map(key => slotStories[key])
       .filter((s): s is IStory => s !== undefined);
-
-    if (boardStories.length === 0) {
-      showToast(
-        'Cannot Publish Empty Board',
-        'error',
-        'Please add at least one story to the board before publishing. Drag stories from the Available Stories section to any slot.',
-        4000
-      );
-      return;
-    }
 
     const layoutConfig = getLayoutConfig(selectedLayout);
     publishBoard({
@@ -1575,14 +1682,48 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       });
   };
 
+  /**
+   * Opens a confirmation before publishing. The empty-board check runs first:
+   * there is nothing to confirm when the publish would be rejected anyway.
+   */
+  const handlePublishBoardClick = (): void => {
+    const placedCount = Object.keys(slotStories)
+      .filter(key => slotStories[key] !== undefined).length;
+
+    if (placedCount === 0) {
+      showToast(
+        'Cannot Publish Empty Board',
+        'error',
+        'Please add at least one story to the board before publishing. Drag stories from the Available Stories section to any slot.',
+        4000
+      );
+      return;
+    }
+
+    setIsPublishConfirmOpen(true);
+  };
+
+  /** Runs the publish flow only after explicit confirmation. */
+  const handlePublishBoardConfirmed = (): void => {
+    setIsPublishConfirmOpen(false);
+    handlePublishBoard();
+  };
+
   const sortedAvailableStories = useMemo(
     () => sortAvailableStories(availableStories),
     [availableStories]
   );
 
-  const filteredStories = sortedAvailableStories.filter(story =>
-    story.title.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Trimmed: a trailing space — routine when the term is pasted — would
+  // otherwise match nothing and read as "no such story". A whitespace-only
+  // term normalises to '' and so leaves the list unfiltered.
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+
+  const filteredStories = normalizedSearch
+    ? sortedAvailableStories.filter(story =>
+      story.title.toLowerCase().includes(normalizedSearch)
+    )
+    : sortedAvailableStories;
 
   if (isLoading) {
     return (
@@ -1614,7 +1755,7 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
           <button
             type="button"
             className={styles.btnPublish}
-            onClick={handlePublishBoard}
+            onClick={handlePublishBoardClick}
             disabled={isSchedulingMode || isGroupEditingMode}
           >
             <Icon iconName="PublishContent" />
@@ -1726,17 +1867,23 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
                     </button>
                   </div>
                 ) : !isSchedulingMode ? (
-                  scheduledGroups.length < MAX_SCHEDULED_GROUPS && (
-                    <button
-                      className={styles.btnSchedule}
-                      onClick={handleScheduleGroup}
-                      disabled={availableStories.length === 0}
-                    >
-                      <Icon iconName="Add" />
-                      <span className={styles.labelFull}>Schedule New Group</span>
-                      <span className={styles.labelShort}>Schedule Group</span>
-                    </button>
-                  )
+                  // Kept rendered at the cap, disabled with a reason: a button
+                  // that vanishes explains nothing. `handleScheduleGroup` still
+                  // guards, so removing the `disabled` surfaces the toast.
+                  <button
+                    className={styles.btnSchedule}
+                    onClick={handleScheduleGroup}
+                    disabled={availableStories.length === 0 || isAtScheduleLimit}
+                    title={
+                      isAtScheduleLimit
+                        ? `Maximum of ${MAX_SCHEDULED_GROUPS} scheduled groups reached. Delete a group to schedule another.`
+                        : undefined
+                    }
+                  >
+                    <Icon iconName="Add" />
+                    <span className={styles.labelFull}>Schedule New Group</span>
+                    <span className={styles.labelShort}>Schedule Group</span>
+                  </button>
                 ) : (
                   <div className={styles.schedulingControlsInline}>
                     <div className={styles.schedulingBadge}>
@@ -1880,24 +2027,49 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
                 <div className={styles.searchContainer}>
                    <Icon iconName="Search" className={styles.searchIcon} />
                    <input
-                    type="text"
+                    ref={searchInputRef}
+                    type="search"
                     placeholder="Search stories by title..."
                     aria-label="Search available stories"
                     className={styles.searchInput}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
+                    // Escape is the expected way out of a search field, and the
+                    // only one that does not require tabbing to the × button.
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape' && searchTerm) {
+                        e.preventDefault();
+                        setSearchTerm('');
+                      }
+                    }}
                   />
                   {searchTerm && (
                     <button
                       type="button"
                       className={styles.clearSearchBtn}
-                      onClick={() => setSearchTerm('')}
+                      // This button unmounts with the term it clears, so a
+                      // keyboard activation would drop focus to <body> and the
+                      // next Tab would restart from the top of the page.
+                      onClick={() => {
+                        setSearchTerm('');
+                        searchInputRef.current?.focus();
+                      }}
                       aria-label="Clear search"
                       title="Clear search"
                     >
                       <Icon iconName="Cancel" />
                     </button>
                   )}
+                </div>
+
+                {/* Filtering is silent to a screen reader without this: the list
+                    swaps under the cursor with no announcement. `aria-live`
+                    rather than `role="status"`, which the loading skeleton owns
+                    and the tests key off. */}
+                <div className={styles.searchStatus} aria-live="polite" aria-atomic="true">
+                  {normalizedSearch
+                    ? `${filteredStories.length} ${filteredStories.length === 1 ? 'story' : 'stories'} found`
+                    : ''}
                 </div>
 
                 <SortableContext
@@ -1908,10 +2080,10 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
                   <div className={styles.availableStoriesList}>
                     {filteredStories.length === 0 ? (
                       <div className={styles.emptyState}>
-                        {searchTerm ? (
+                        {normalizedSearch ? (
                           <>
                             <Icon iconName="Search" className={styles.emptySearchIcon} />
-                            <p>No stories found matching &quot;{searchTerm}&quot;</p>
+                            <p>No stories found matching &quot;{searchTerm.trim()}&quot;</p>
                             <p className={styles.emptyHint}>Try a different search term</p>
                           </>
                         ) : (
@@ -1982,6 +2154,18 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
           onAction={handleClearBoardConfirmed}
         >
           This will remove all stories from board slots and reset tile display options to defaults.
+        </AlertDialog>
+      )}
+
+      {isPublishConfirmOpen && (
+        <AlertDialog
+          title="Publish this board live?"
+          titleId="publish-board-heading"
+          actionLabel="Yes, Publish Board"
+          onCancel={() => setIsPublishConfirmOpen(false)}
+          onAction={handlePublishBoardConfirmed}
+        >
+          This will replace the currently published board and make these stories live for all viewers.
         </AlertDialog>
       )}
 

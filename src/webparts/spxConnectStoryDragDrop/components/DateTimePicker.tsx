@@ -192,10 +192,14 @@ const DateTimePicker: React.FC<IDateTimePickerProps> = ({
             onChange={(e) => onTimeChange(e.target.value)}
             aria-label="Time"
           />
+          {/* Really disabled, not just dimmed: the caller's own "no date"
+              guard stays as a backstop, but keyboard and screen-reader users
+              need the state to be real. */}
           <button
             type="button"
             className={`${styles.confirmBtn} ${!selectedDate ? styles.confirmDim : ''}`}
             onClick={onConfirm}
+            disabled={!selectedDate}
           >
             {confirmText}
           </button>

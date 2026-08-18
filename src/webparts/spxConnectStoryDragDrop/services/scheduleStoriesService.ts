@@ -73,6 +73,16 @@ export interface IScheduledGroupRecord {
   status: ScheduleStatus;
   /** When the list item was created. */
   createdAt: Date;
+  /**
+   * The absolute instant this group is scheduled for. `date` and `time` are
+   * this same moment expressed in the *viewer's* zone; this is what to compare
+   * and what a publishing job should fire on.
+   */
+  scheduledAtUtc: Date;
+  /** IANA zone the group was scheduled from, when it was recorded. */
+  authorTimeZone?: string;
+  /** The author zone's offset from UTC, in minutes, at the scheduled instant. */
+  authorOffsetMinutes?: number;
 }
 
 /** Input for creating a new scheduled group (id supplied by the app). */
@@ -107,8 +117,14 @@ interface IRawScheduleItem {
   GroupId?: string;
   /** Scheduled day, in ISO form. */
   ScheduleDate?: string;
-  /** Scheduled day and time combined, in ISO form. */
+  /** Scheduled day and time combined, in ISO form. Zone-less; legacy. */
   ScheduledDateTime?: string;
+  /** The absolute scheduled instant, in ISO form ending `Z`. Authoritative. */
+  ScheduledDateTimeUtc?: string;
+  /** IANA zone the group was scheduled from. */
+  ScheduledTimeZone?: string;
+  /** The author zone's offset from UTC, in minutes, at the scheduled instant. */
+  ScheduledOffsetMinutes?: number | null;
   /** Layout preset id, validated on read. */
   LayoutType?: string;
   /** The serialized {@link IBoardStateJson} payload. */
@@ -125,10 +141,16 @@ interface IBoardStateJson {
   layoutType: LayoutType;
   /** Display name of the preset at save time. */
   layoutName: string;
-  /** Scheduled day, in ISO form. */
+  /** Scheduled day, in the author's civil terms. */
   scheduleDate: string;
-  /** Scheduled time as "HH:mm". */
+  /** Scheduled time as "HH:mm", in the author's civil terms. */
   time: string;
+  /** The absolute scheduled instant, ISO ending `Z`. Absent on legacy rows. */
+  scheduledAtUtc?: string;
+  /** IANA zone the group was scheduled from. */
+  timeZone?: string;
+  /** The author zone's offset from UTC, in minutes, at that instant. */
+  offsetMinutes?: number;
   /** Filled slots only, each with its story and optional layout override. */
   slots: Array<{ slotId: string; story: IStory; cardLayout?: CardLayout }>;
 }
@@ -179,8 +201,69 @@ const DAY_ANCHOR_HOUR = "12:00:00";
  * @param d - Date whose calendar day is wanted.
  * @returns The calendar day as `YYYY-MM-DD`.
  */
+const pad2 = (n: number): string => (n < 10 ? `0${n}` : `${n}`);
+
+/**
+ * The timezone-aware form a scheduled moment is persisted in.
+ *
+ * The instant is what actually fires and what sorts; the zone and offset record
+ * *whose* wall clock produced it, so a viewer elsewhere can be shown both their
+ * own time and the author's.
+ */
+export interface IScheduledMoment {
+  /** The absolute instant, as an ISO string ending in `Z`. */
+  utcIso: string;
+  /** IANA zone the group was scheduled from, e.g. `Asia/Kolkata`. */
+  timeZone: string;
+  /** That zone's offset from UTC at that instant, in minutes. East is positive. */
+  offsetMinutes: number;
+}
+
+/** The runtime's IANA zone, or "" where `Intl` cannot report one. */
+const resolveTimeZone = (): string => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+};
+
+/**
+ * Converts an author's civil day and time into a storable instant.
+ *
+ * The `Date` is built from **local** parts, so it carries the author's wall
+ * clock; `toISOString` then resolves it to the one instant every timezone
+ * agrees on.
+ *
+ * @param dateKey - Civil day as `YYYY-MM-DD`.
+ * @param time - Civil time as `HH:mm`.
+ */
+export const toScheduledMoment = (dateKey: string, time: string): IScheduledMoment => {
+  const [y, m, d] = dateKey.split("-").map((part) => parseInt(part, 10));
+  const [hr, min] = normalizeTime(time).split(":").map((part) => parseInt(part, 10));
+  const local = new Date(y, m - 1, d, hr, min, 0, 0);
+
+  return {
+    utcIso: local.toISOString(),
+    timeZone: resolveTimeZone(),
+    offsetMinutes: -local.getTimezoneOffset(),
+  };
+};
+
+/**
+ * Reads an instant back as civil parts in *the viewer's* zone.
+ *
+ * A `Date` is already an absolute instant, so the local getters are themselves
+ * the conversion — no offset arithmetic, and correct for any zone.
+ *
+ * @param instant - The stored moment.
+ */
+export const toLocalParts = (instant: Date): { dateKey: string; time: string } => ({
+  dateKey: toDateKey(instant),
+  time: `${pad2(instant.getHours())}:${pad2(instant.getMinutes())}`,
+});
+
 export const toDateKey = (d: Date): string => {
-  const pad2 = (n: number): string => (n < 10 ? `0${n}` : `${n}`);
   const y = d.getFullYear();
   const m = pad2(d.getMonth() + 1);
   const day = pad2(d.getDate());
@@ -215,11 +298,20 @@ export const serializeBoardState = (group: INewScheduledGroup): string => {
     })
     .filter((entry): entry is { slotId: string; story: IStory; cardLayout?: CardLayout } => !!entry.story);
 
+  const dateKey = toDateKey(group.date);
+  const time = normalizeTime(group.time);
+  const moment = toScheduledMoment(dateKey, time);
+
   const payload: IBoardStateJson = {
     layoutType: group.layoutType,
     layoutName,
-    scheduleDate: toDateKey(group.date),
-    time: normalizeTime(group.time),
+    scheduleDate: dateKey,
+    time,
+    // Mirrored here as well as in its own column: this JSON is the one field
+    // that cannot be reshaped by SharePoint's own timezone handling.
+    scheduledAtUtc: moment.utcIso,
+    timeZone: moment.timeZone,
+    offsetMinutes: moment.offsetMinutes,
     slots,
   };
   return JSON.stringify(payload);
@@ -236,6 +328,9 @@ const parseBoardState = (json: string | undefined): IBoardStateJson | undefined 
       layoutName: parsed.layoutName || "",
       scheduleDate: parsed.scheduleDate || "",
       time: normalizeTime(parsed.time),
+      scheduledAtUtc: parsed.scheduledAtUtc,
+      timeZone: parsed.timeZone,
+      offsetMinutes: typeof parsed.offsetMinutes === "number" ? parsed.offsetMinutes : undefined,
       slots: parsed.slots.filter(
         (s): s is { slotId: string; story: IStory; cardLayout?: CardLayout } => !!s && !!s.slotId && !!s.story
       ),
@@ -244,6 +339,13 @@ const parseBoardState = (json: string | undefined): IBoardStateJson | undefined 
     console.error("Schedule Stories: failed to parse BoardStateJson", err);
     return undefined;
   }
+};
+
+/** A usable Date from an ISO string, or undefined for missing/unparseable input. */
+const parseInstant = (iso: string | undefined): Date | undefined => {
+  if (!iso) return undefined;
+  const parsed = new Date(iso);
+  return isNaN(parsed.getTime()) ? undefined : parsed;
 };
 
 const boardStateToSlotMap = (state: IBoardStateJson): SlotStoryMap => {
@@ -271,20 +373,30 @@ const mapRawToRecord = (raw: IRawScheduleItem): IScheduledGroupRecord | undefine
     return undefined;
   }
 
-  // BoardStateJson carries the calendar day as a plain string, so it is the
-  // only source that cannot have drifted. The SharePoint columns are instants
-  // and are consulted only when it is absent — rows written before the field
-  // existed, or edited outside the app. Those are read with local parts to
-  // match how the day was anchored on write; see DAY_ANCHOR_HOUR.
-  const dateKey =
+  // Resolution order for the moment, most trustworthy first:
+  //  1. the UTC column — an unambiguous instant;
+  //  2. the same value mirrored in BoardStateJson, for rows edited outside the
+  //     app in a way that disturbed the column;
+  //  3. legacy rows with no instant at all, whose civil day and time are read
+  //     as the *viewer's* local wall clock, preserving pre-migration behaviour.
+  const legacyDateKey =
     state.scheduleDate ||
     (raw.ScheduleDate ? toDateKey(new Date(raw.ScheduleDate)) : "") ||
     (raw.ScheduledDateTime ? toDateKey(new Date(raw.ScheduledDateTime)) : "");
 
-  if (!dateKey) {
+  const storedInstant = parseInstant(raw.ScheduledDateTimeUtc) || parseInstant(state.scheduledAtUtc);
+  const instant =
+    storedInstant ||
+    (legacyDateKey ? new Date(toScheduledMoment(legacyDateKey, state.time).utcIso) : undefined);
+
+  if (!instant) {
     console.warn(`Schedule Stories: skipping item ${spId} — no resolvable date.`);
     return undefined;
   }
+
+  // The conversion the whole change exists for: an instant in, the viewer's
+  // own civil day and time out.
+  const local = toLocalParts(instant);
 
   const layoutType = isValidLayoutType(state.layoutType)
     ? state.layoutType
@@ -302,14 +414,18 @@ const mapRawToRecord = (raw: IRawScheduleItem): IScheduledGroupRecord | undefine
   return {
     id: raw.GroupId || `sp-${spId}`,
     spId,
-    date: fromDateKey(dateKey),
-    time: normalizeTime(state.time),
+    date: fromDateKey(local.dateKey),
+    time: local.time,
     slotStories: boardStateToSlotMap(state),
     slotLayoutPreferences,
     layoutType,
     layoutName: state.layoutName || getLayoutConfig(layoutType).name,
     status: coerceStatus(raw.Status),
     createdAt: raw.Created ? new Date(raw.Created) : new Date(),
+    scheduledAtUtc: instant,
+    authorTimeZone: raw.ScheduledTimeZone || state.timeZone || undefined,
+    authorOffsetMinutes:
+      typeof raw.ScheduledOffsetMinutes === "number" ? raw.ScheduledOffsetMinutes : state.offsetMinutes,
   };
 };
 
@@ -318,6 +434,7 @@ const mapRawToRecord = (raw: IRawScheduleItem): IScheduledGroupRecord | undefine
 const buildItemPayload = (group: INewScheduledGroup): any => {
   const dateKey = toDateKey(group.date);
   const time = normalizeTime(group.time);
+  const moment = toScheduledMoment(dateKey, time);
   const layoutName = group.layoutName || getLayoutConfig(group.layoutType).name;
 
   return {
@@ -326,9 +443,13 @@ const buildItemPayload = (group: INewScheduledGroup): any => {
     // Day-only column, anchored at midday so timezone normalisation cannot
     // push it onto the neighbouring day.
     ScheduleDate: `${dateKey}T${DAY_ANCHOR_HOUR}`,
-    // Genuine civil date-time — carries the scheduled time and backs the
-    // soonest-first ordering, so it keeps the real hour.
+    // Civil date-time, kept zone-less for anything still reading it.
     ScheduledDateTime: `${dateKey}T${time}:00`,
+    // The authoritative instant, plus whose wall clock produced it. This is
+    // what sorts, what compares, and what a publishing job should fire on.
+    ScheduledDateTimeUtc: moment.utcIso,
+    ScheduledTimeZone: moment.timeZone,
+    ScheduledOffsetMinutes: moment.offsetMinutes,
     LayoutType: group.layoutType,
     BoardStateJson: serializeBoardState(group),
     Status: group.status || DEFAULT_STATUS,
@@ -352,12 +473,16 @@ export const getScheduledGroups = async (): Promise<IScheduledGroupRecord[]> => 
         "GroupId",
         "ScheduleDate",
         "ScheduledDateTime",
+        "ScheduledDateTimeUtc",
+        "ScheduledTimeZone",
+        "ScheduledOffsetMinutes",
         "LayoutType",
         "BoardStateJson",
         "Status",
         "Created"
       )
-      .orderBy("ScheduledDateTime", true)
+      // Ordered on the instant, so the sequence is the same in every timezone.
+      .orderBy("ScheduledDateTimeUtc", true)
       .top(200)();
 
     return items
@@ -386,11 +511,18 @@ export const createScheduledGroup = async (
       throw new Error("Schedule Stories: create did not return a SharePoint item id.");
     }
 
+    // Same moment the payload was built from, so a freshly created group and
+    // one read back on the next load carry identical fields.
+    const moment = toScheduledMoment(toDateKey(group.date), normalizeTime(group.time));
+
     return {
       id: group.id,
       spId: createdSpId,
       date: fromDateKey(toDateKey(group.date)),
       time: normalizeTime(group.time),
+      scheduledAtUtc: new Date(moment.utcIso),
+      authorTimeZone: moment.timeZone || undefined,
+      authorOffsetMinutes: moment.offsetMinutes,
       slotStories: { ...group.slotStories },
       // Always an object, as {@link mapRawToRecord} returns on reload. Omitting
       // it left the freshly created group looking like it had no card layouts,
@@ -438,8 +570,12 @@ export const updateScheduledGroup = async (
         : prevState?.scheduleDate || toDateKey(new Date(existing.ScheduledDateTime));
       const time = hasTime ? normalizeTime(changes.time) : normalizeTime(prevState?.time);
 
+      const moment = toScheduledMoment(dateKey, time);
       payload.ScheduleDate = `${dateKey}T${DAY_ANCHOR_HOUR}`;
       payload.ScheduledDateTime = `${dateKey}T${time}:00`;
+      payload.ScheduledDateTimeUtc = moment.utcIso;
+      payload.ScheduledTimeZone = moment.timeZone;
+      payload.ScheduledOffsetMinutes = moment.offsetMinutes;
     }
 
     if (hasBoard || hasDate || hasTime || hasLayout || hasPrefs) {
@@ -599,6 +735,9 @@ export const ensureScheduleStoriesList = async (): Promise<void> => {
     await addSafely(() => list.fields.addText("GroupId"));
     await addSafely(() => list.fields.addDateTime("ScheduleDate"));
     await addSafely(() => list.fields.addDateTime("ScheduledDateTime"));
+    await addSafely(() => list.fields.addDateTime("ScheduledDateTimeUtc"));
+    await addSafely(() => list.fields.addText("ScheduledTimeZone"));
+    await addSafely(() => list.fields.addNumber("ScheduledOffsetMinutes"));
     await addSafely(() => list.fields.addChoice("LayoutType", { Choices: VALID_LAYOUT_TYPES }));
     await addSafely(() => list.fields.addMultilineText("BoardStateJson"));
     await addSafely(() => list.fields.addChoice("Status", { Choices: VALID_STATUSES }));
