@@ -102,6 +102,25 @@ const isMomentPast = (date: Date, time: string): boolean => {
 };
 
 /**
+ * Whether a scheduled group's moment has already gone by.
+ *
+ * Prefers `scheduledAtUtc`, the absolute instant the service persists, so the
+ * verdict is the same for every viewer regardless of timezone. Groups still
+ * held in memory before their first save have no instant yet, so those fall
+ * back to the civil day and time the picker produced.
+ *
+ * @param group - Group to test.
+ * @returns `true` when the group is due or overdue.
+ */
+const isGroupPast = (group: ScheduledStoryGroup): boolean => {
+  if (group.scheduledAtUtc) {
+    return group.scheduledAtUtc.getTime() <= new Date().getTime();
+  }
+
+  return isMomentPast(group.date, group.time);
+};
+
+/**
  * Orders scheduled groups soonest first, the order the service reads them in.
  *
  * Sorting the list rather than appending to it keeps a group created or
@@ -605,6 +624,16 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
             console.error('Failed to load published board from SharePoint:', err);
           }
 
+          // The dirty baseline is the *published* board, captured before any
+          // local draft is layered on top. Snapshotting after the draft would
+          // make a restored draft compare equal to its own baseline, so
+          // `hasUnsavedChanges` would read false and the persistence effect
+          // below would immediately delete the draft it had just restored.
+          const baselineLayout = nextSelectedLayout || 'connectHomepage';
+          const baselineSlotStories = nextSlotStories;
+          const baselineSlotLayoutPreferences = nextSlotLayoutPreferences;
+          const baselineAvailableStories = nextAvailableStories;
+
           const draft = loadDraft(localDraftKey);
           if (draft) {
             const draftSlots = mergeSlotStoriesWithLatest(draft.slotStories, formattedStories);
@@ -648,10 +677,10 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
             }
             setBaselineSnapshot(
               serializeBoardStateForDirtyCheck(
-                nextSelectedLayout || 'connectHomepage',
-                nextSlotStories,
-                nextSlotLayoutPreferences,
-                nextAvailableStories
+                baselineLayout,
+                baselineSlotStories,
+                baselineSlotLayoutPreferences,
+                baselineAvailableStories
               )
             );
             setError(null);
@@ -667,7 +696,13 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
         try {
           const groups = await getScheduledGroups();
           if (isMounted) {
-            setScheduledGroups(groups);
+            // Groups whose moment has gone by are dropped on load rather than
+            // rendered as stale rows. They stay in SharePoint — nothing here
+            // deletes them — so the list remains the audit trail while the
+            // panel only ever shows what is still upcoming. Filtering into
+            // state also keeps the schedule limit, the taken-date check and
+            // the calendar's disabled days all counting the same groups.
+            setScheduledGroups(groups.filter((group) => !isGroupPast(group)));
           }
         } catch (err) {
           console.error('Failed to load scheduled groups from SharePoint:', err);
@@ -1422,16 +1457,30 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
       const story = slotStories[key];
       if (story) storiesFromBoard.push(story);
     });
-    
-    if (storiesFromBoard.length > 0) {
-      setAvailableStories(prev => {
-        const existingIds = new Set(prev.map(s => s.id));
-        const toAdd = storiesFromBoard.filter(s => !existingIds.has(s.id));
-        return [...toAdd, ...prev];
-      });
-    }
-    
-    setSlotStories({ ...originalBoardState });
+
+    const restoredSlots: SlotStoryMap = { ...originalBoardState };
+
+    // Entering editing mode pushed the parked board's occupants into the
+    // available list, because the board was showing the group in their place.
+    // Restoring the board has to take them back out: without this every parked
+    // story sits in a slot and in the available list at once, where it can be
+    // dragged into a second slot and published twice.
+    const restoredIds = new Set(
+      Object.keys(restoredSlots)
+        .map(key => restoredSlots[key])
+        .filter((story): story is IStory => !!story)
+        .map(story => story.id)
+    );
+
+    setAvailableStories(prev => {
+      const existingIds = new Set(prev.map(s => s.id));
+      const toAdd = storiesFromBoard.filter(
+        s => !existingIds.has(s.id) && !restoredIds.has(s.id)
+      );
+      return [...toAdd, ...prev].filter(s => !restoredIds.has(s.id));
+    });
+
+    setSlotStories(restoredSlots);
     setSlotLayoutPreferences({ ...originalLayoutPreferences });
 
     setIsGroupEditingMode(false);
@@ -1838,16 +1887,18 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
                         <Icon iconName="Calendar" /> Reschedule
                       </button>
                       {showRescheduleCalendar && (
-                        <div className={styles.calendarOverlay}>
-                          <DateTimePicker
-                            selectedDate={rescheduleDate}
-                            time={rescheduleTime}
-                            onSelectDate={setRescheduleDate}
-                            onTimeChange={setRescheduleTime}
-                            onConfirm={handleConfirmReschedule}
-                            confirmText="Reschedule"
-                            isDateDisabled={(date) => isDayBlocked(date, scheduledGroups, editingGroupId)}
-                          />
+                        <div className={styles.calendarOverlay} onClick={() => setShowRescheduleCalendar(false)}>
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <DateTimePicker
+                              selectedDate={rescheduleDate}
+                              time={rescheduleTime}
+                              onSelectDate={setRescheduleDate}
+                              onTimeChange={setRescheduleTime}
+                              onConfirm={handleConfirmReschedule}
+                              confirmText="Reschedule"
+                              isDateDisabled={(date) => isDayBlocked(date, scheduledGroups, editingGroupId)}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1915,16 +1966,18 @@ const StoryDragDrop: React.FC<StoryDragDropProps> = ({
                         })() : 'Select date & time'}
                       </button>
                       {showCalendarOverlay && isSchedulingMode && (
-                        <div className={styles.calendarOverlay}>
-                          <DateTimePicker
-                            selectedDate={selectedScheduleDate}
-                            time={selectedScheduleTime}
-                            onSelectDate={setSelectedScheduleDate}
-                            onTimeChange={setSelectedScheduleTime}
-                            onConfirm={handleScheduleNow}
-                            confirmText="Schedule"
-                            isDateDisabled={isDayPast}
-                          />
+                        <div className={styles.calendarOverlay} onClick={() => setShowCalendarOverlay(false)}>
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <DateTimePicker
+                              selectedDate={selectedScheduleDate}
+                              time={selectedScheduleTime}
+                              onSelectDate={setSelectedScheduleDate}
+                              onTimeChange={setSelectedScheduleTime}
+                              onConfirm={handleScheduleNow}
+                              confirmText="Schedule"
+                              isDateDisabled={isDayPast}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>

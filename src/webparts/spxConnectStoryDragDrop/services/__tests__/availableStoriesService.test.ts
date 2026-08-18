@@ -1,6 +1,7 @@
 import {
   initializeSharePoint,
   getSp,
+  deriveSourceFromUrl,
   createStory,
   getStories,
   updateStory,
@@ -131,6 +132,19 @@ describe('availableStoriesService', () => {
       const sp = getSp();
 
       expect(sp).toBeDefined();
+    });
+  });
+
+  describe('deriveSourceFromUrl', () => {
+    it('classifies SharePoint domains as internal and whitecase.com as external', () => {
+      expect(deriveSourceFromUrl('https://whitecase.sharepoint.com/sites/comms')).toBe('internal');
+      expect(deriveSourceFromUrl('https://contoso.sharepoint.com/sites/comms')).toBe('external');
+      expect(deriveSourceFromUrl('https://whitecase.com/news')).toBe('external');
+      expect(deriveSourceFromUrl('https://sub.whitecase.com/news')).toBe('external');
+    });
+
+    it('classifies LinkedIn domains as linkedin', () => {
+      expect(deriveSourceFromUrl('https://www.linkedin.com/posts/abc')).toBe('linkedin');
     });
   });
 

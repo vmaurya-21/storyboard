@@ -76,6 +76,7 @@ interface ISharePointStoryItem {
 export const DEFAULT_AVAILABLE_STORIES_LIST_NAME = "AvailableStories";
 
 let availableStoriesListName = DEFAULT_AVAILABLE_STORIES_LIST_NAME;
+const WC_SHAREPOINT_HOST = "whitecase.sharepoint.com";
 
 /**
  * Override the SharePoint list title used by this service.
@@ -104,10 +105,7 @@ export const deriveSourceFromUrl = (url?: string): 'internal' | 'external' | 'li
       return "linkedin";
     }
 
-    if (hostname === "whitecase.com" || hostname.endsWith(".whitecase.com")) {
-      if (hostname.startsWith("external.") || hostname.indexOf("external-") !== -1) {
-        return "external";
-      }
+    if (hostname === WC_SHAREPOINT_HOST || hostname.endsWith(`.${WC_SHAREPOINT_HOST}`)) {
       return "internal";
     }
 

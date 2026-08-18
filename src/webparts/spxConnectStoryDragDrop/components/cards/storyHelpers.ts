@@ -9,6 +9,8 @@ export interface IStorySourceInfo {
   domain?: string;
 }
 
+const WC_SHAREPOINT_HOST = 'whitecase.sharepoint.com';
+
 /**
  * Classifies a story's post link as internal, LinkedIn or external.
  *
@@ -16,8 +18,8 @@ export interface IStorySourceInfo {
  *
  * - any `*.linkedin.com` host is `linkedin`, reported with the canonical
  *   domain `linkedin.com` rather than the subdomain;
- * - `*.whitecase.com` is `internal`, unless the host starts with `external.`
- *   or contains `external-`, which marks a partner-facing site;
+ * - `whitecase.sharepoint.com` and its subdomains are `internal`;
+ * - `whitecase.com` and all of its subdomains are `external`;
  * - anything else is `external`.
  *
  * A missing, blank or placeholder (`'#'`) link, or one that fails to parse,
@@ -33,8 +35,8 @@ export interface IStorySourceInfo {
  * detectStorySource('https://www.linkedin.com/posts/x');
  * // => { source: 'linkedin', domain: 'linkedin.com' }
  *
- * detectStorySource('https://external.whitecase.com/a');
- * // => { source: 'external', domain: 'external.whitecase.com' }
+ * detectStorySource('https://whitecase.sharepoint.com/sites/comms');
+ * // => { source: 'internal', domain: 'whitecase.sharepoint.com' }
  * ```
  */
 export const detectStorySource = (url?: string): IStorySourceInfo => {
@@ -48,10 +50,7 @@ export const detectStorySource = (url?: string): IStorySourceInfo => {
       return { source: 'linkedin', domain: 'linkedin.com' };
     }
 
-    if (hostname === 'whitecase.com' || hostname.endsWith('.whitecase.com')) {
-      if (hostname.startsWith('external.') || hostname.indexOf('external-') !== -1) {
-        return { source: 'external', domain: hostname };
-      }
+    if (hostname === WC_SHAREPOINT_HOST || hostname.endsWith(`.${WC_SHAREPOINT_HOST}`)) {
       return { source: 'internal', domain: hostname };
     }
 
