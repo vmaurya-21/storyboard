@@ -258,17 +258,17 @@ export const toScheduledMoment = (dateKey: string, time: string): IScheduledMome
  *
  * @param instant - The stored moment.
  */
-export const toLocalParts = (instant: Date): { dateKey: string; time: string } => ({
-  dateKey: toDateKey(instant),
-  time: `${pad2(instant.getHours())}:${pad2(instant.getMinutes())}`,
-});
-
 export const toDateKey = (d: Date): string => {
   const y = d.getFullYear();
   const m = pad2(d.getMonth() + 1);
   const day = pad2(d.getDate());
   return `${y}-${m}-${day}`;
 };
+
+export const toLocalParts = (instant: Date): { dateKey: string; time: string } => ({
+  dateKey: toDateKey(instant),
+  time: `${pad2(instant.getHours())}:${pad2(instant.getMinutes())}`,
+});
 
 /**
  * Reconstructs the app's Date from a "YYYY-MM-DD" key.
